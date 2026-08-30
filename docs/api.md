@@ -270,6 +270,10 @@ note를 다시 여는 방식으로 경계를 명시해야 한다.
 | `minimm_client_note_remap_page` | transient shared view의 file page remap protection 조회 |
 | `minimm_client_note_mseal_merge` | transient mseal merge의 page·range metadata 조회 |
 | `minimm_client_note_mglru_reparent` | transient MGLRU reparent accounting metadata 조회 |
+| `minimm_client_note_rmap_unmap` | transient rmap unmap batch metadata 조회 |
+| `minimm_client_note_uffd_move` | transient userfaultfd move metadata 조회 |
+| `minimm_client_note_hugetlb_reserve` | transient hugetlb reservation metadata 조회 |
+| `minimm_client_note_percpu_populate` | transient per-CPU population metadata 조회 |
 | `minimm_client_note_resize/flush/unlink` | page-aligned resize, file flush, capability registry 제거 |
 | `minimm_capability_format/parse` | 16-byte token과 32자리 hex 변환 |
 
@@ -319,6 +323,11 @@ model의 total/sealed page 수, range validity와 page-aligned cursor 두 개를
 model의 total page 수, parent generation count, child의 대응하는 debt/credit과
 clean/valid 상태를 제공한다. host memcg/LRU를 사용하지 않으며 note byte도
 보존한다.
+새 security model API 네 개도 정확히 4096-byte인 `READ|WRITE|SHARE` note를
+요구하며 각 대응 server flag가 false면 `MINIMM_ERROR_UNSUPPORTED`를 반환한다.
+각 API는 명시적인 bounded 정수 입력에 대한 transient model 결과를 반환한다.
+모두 metadata-only 연산이고 host page table, swap, hugepage 또는 per-CPU allocator를
+사용하지 않으며 note byte도 보존한다.
 `minimm_client_note_resize()`는 실제 resize를 시도한 뒤 실패한 응답에 progress
 payload가 있으면 변경되지 않은 크기를 `out_actual_size`로 반환한다. handle·권한
 같은 사전 검증 오류가 빈 payload로 오면 출력은 0이다.

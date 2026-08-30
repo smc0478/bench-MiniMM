@@ -1241,6 +1241,336 @@ minimm_status_t minimm_client_note_mglru_reparent(minimm_client_t *client, uint6
 	return status;
 }
 
+minimm_status_t minimm_client_note_rmap_unmap(minimm_client_t *client, uint64_t handle,
+					      uint32_t pte_capacity, uint32_t pte_index,
+					      uint32_t folio_pages, uint32_t vma_remaining,
+					      minimm_remote_rmap_unmap_result_t *out_result)
+{
+	uint8_t request[MINIMM_PROTOCOL_RMAP_UNMAP_REQUEST_SIZE] = { 0 };
+	uint8_t *response = NULL;
+	uint32_t response_length = UINT32_C(0);
+	minimm_status_t server_status = MINIMM_ERROR_IO;
+	minimm_status_t status = MINIMM_OK;
+
+	if (out_result == NULL) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+	(void)memset(out_result, 0, sizeof(*out_result));
+	if (client == NULL || handle == UINT64_C(0) || pte_capacity == UINT32_C(0) ||
+	    pte_index >= pte_capacity || folio_pages == UINT32_C(0) ||
+	    vma_remaining == UINT32_C(0)) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+
+	minimm_protocol_put_u64(request, handle);
+	minimm_protocol_put_u32(request + 8U, pte_capacity);
+	minimm_protocol_put_u32(request + 12U, pte_index);
+	minimm_protocol_put_u32(request + 16U, folio_pages);
+	minimm_protocol_put_u32(request + 20U, vma_remaining);
+	(void)pthread_mutex_lock(&client->lock);
+	status = minimm_client_exchange_locked(client, MINIMM_PROTOCOL_OP_RMAP_UNMAP, request,
+					       MINIMM_PROTOCOL_RMAP_UNMAP_REQUEST_SIZE, &response,
+					       &response_length, &server_status);
+	if (status == MINIMM_OK && server_status != MINIMM_OK && response_length == UINT32_C(0)) {
+		status = server_status;
+	} else if (status == MINIMM_OK) {
+		const bool response_sized = response_length ==
+					    MINIMM_PROTOCOL_RMAP_UNMAP_RESPONSE_SIZE;
+		const uint32_t requested = response_sized ? minimm_protocol_get_u32(response) :
+							    UINT32_C(0);
+		const uint32_t scanned = response_sized ? minimm_protocol_get_u32(response + 4U) :
+							  UINT32_C(0);
+		const uint32_t safe = response_sized ? minimm_protocol_get_u32(response + 8U) :
+						       UINT32_C(0);
+		const uint32_t first_invalid =
+			response_sized ? minimm_protocol_get_u32(response + 12U) : UINT32_C(0);
+		const uint32_t crossed = response_sized ? minimm_protocol_get_u32(response + 16U) :
+							  UINT32_MAX;
+		const uint32_t bounds_valid =
+			response_sized ? minimm_protocol_get_u32(response + 20U) : UINT32_MAX;
+		const uint32_t available = pte_capacity - pte_index;
+		const uint32_t expected_safe = scanned < available ? scanned : available;
+
+		if (!response_sized || crossed > UINT32_C(1) || bounds_valid > UINT32_C(1) ||
+		    (server_status == MINIMM_OK &&
+		     (requested != folio_pages || scanned > requested || scanned > vma_remaining ||
+		      safe != expected_safe || crossed != (uint32_t)(scanned > safe) ||
+		      bounds_valid != (uint32_t)(scanned == safe) ||
+		      (crossed != UINT32_C(0) &&
+		       (first_invalid != pte_index + safe || first_invalid != pte_capacity)) ||
+		      (crossed == UINT32_C(0) && first_invalid != UINT32_MAX)))) {
+			minimm_client_break_locked(client);
+			status = MINIMM_ERROR_IO;
+		} else {
+			status = server_status;
+			if (status == MINIMM_OK) {
+				out_result->requested_pages = requested;
+				out_result->scanned_pages = scanned;
+				out_result->safe_pages = safe;
+				out_result->first_invalid_index = first_invalid;
+				out_result->crossed_pte_boundary = crossed != UINT32_C(0);
+				out_result->bounds_valid = bounds_valid != UINT32_C(0);
+			}
+		}
+	}
+	(void)pthread_mutex_unlock(&client->lock);
+	free(response);
+	return status;
+}
+
+minimm_status_t minimm_client_note_uffd_move(minimm_client_t *client, uint64_t handle,
+					     uint32_t swap_entry, uint32_t source_folio,
+					     uint32_t replacement_folio,
+					     minimm_remote_uffd_move_result_t *out_result)
+{
+	uint8_t request[MINIMM_PROTOCOL_UFFD_MOVE_REQUEST_SIZE] = { 0 };
+	uint8_t *response = NULL;
+	uint32_t response_length = UINT32_C(0);
+	minimm_status_t server_status = MINIMM_ERROR_IO;
+	minimm_status_t status = MINIMM_OK;
+
+	if (out_result == NULL) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+	(void)memset(out_result, 0, sizeof(*out_result));
+	if (client == NULL || handle == UINT64_C(0) || swap_entry == UINT32_C(0) ||
+	    source_folio == UINT32_C(0) || replacement_folio == UINT32_C(0) ||
+	    source_folio == replacement_folio) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+
+	minimm_protocol_put_u64(request, handle);
+	minimm_protocol_put_u32(request + 8U, swap_entry);
+	minimm_protocol_put_u32(request + 12U, source_folio);
+	minimm_protocol_put_u32(request + 16U, replacement_folio);
+	minimm_protocol_put_u32(request + 20U, UINT32_C(0));
+	(void)pthread_mutex_lock(&client->lock);
+	status = minimm_client_exchange_locked(client, MINIMM_PROTOCOL_OP_UFFD_MOVE, request,
+					       MINIMM_PROTOCOL_UFFD_MOVE_REQUEST_SIZE, &response,
+					       &response_length, &server_status);
+	if (status == MINIMM_OK && server_status != MINIMM_OK && response_length == UINT32_C(0)) {
+		status = server_status;
+	} else if (status == MINIMM_OK) {
+		const bool response_sized = response_length ==
+					    MINIMM_PROTOCOL_UFFD_MOVE_RESPONSE_SIZE;
+		const uint32_t returned_entry = response_sized ? minimm_protocol_get_u32(response) :
+								 UINT32_C(0);
+		const uint32_t expected = response_sized ? minimm_protocol_get_u32(response + 4U) :
+							   UINT32_C(0);
+		const uint32_t moved = response_sized ? minimm_protocol_get_u32(response + 8U) :
+							UINT32_C(0);
+		const uint32_t pte_matches =
+			response_sized ? minimm_protocol_get_u32(response + 12U) : UINT32_MAX;
+		const uint32_t identity_valid =
+			response_sized ? minimm_protocol_get_u32(response + 16U) : UINT32_MAX;
+		const uint32_t accounting_valid =
+			response_sized ? minimm_protocol_get_u32(response + 20U) : UINT32_MAX;
+
+		if (!response_sized || pte_matches > UINT32_C(1) || identity_valid > UINT32_C(1) ||
+		    accounting_valid > UINT32_C(1) ||
+		    (server_status == MINIMM_OK &&
+		     (returned_entry != swap_entry || expected != source_folio ||
+		      pte_matches == UINT32_C(0) ||
+		      (moved != source_folio && moved != replacement_folio) ||
+		      identity_valid != (uint32_t)(moved == expected) ||
+		      accounting_valid != identity_valid))) {
+			minimm_client_break_locked(client);
+			status = MINIMM_ERROR_IO;
+		} else {
+			status = server_status;
+			if (status == MINIMM_OK) {
+				out_result->swap_entry = returned_entry;
+				out_result->expected_folio = expected;
+				out_result->moved_folio = moved;
+				out_result->pte_entry_matches = pte_matches != UINT32_C(0);
+				out_result->folio_identity_valid = identity_valid != UINT32_C(0);
+				out_result->accounting_valid = accounting_valid != UINT32_C(0);
+			}
+		}
+	}
+	(void)pthread_mutex_unlock(&client->lock);
+	free(response);
+	return status;
+}
+
+minimm_status_t
+minimm_client_note_hugetlb_reserve(minimm_client_t *client, uint64_t handle, uint32_t maximum_pages,
+				   uint32_t minimum_pages, uint32_t used_before,
+				   uint32_t requested_pages, uint32_t global_free_pages,
+				   minimm_remote_hugetlb_reserve_result_t *out_result)
+{
+	uint8_t request[MINIMM_PROTOCOL_HUGETLB_RESERVE_REQUEST_SIZE] = { 0 };
+	uint8_t *response = NULL;
+	uint32_t response_length = UINT32_C(0);
+	minimm_status_t server_status = MINIMM_ERROR_IO;
+	minimm_status_t status = MINIMM_OK;
+
+	if (out_result == NULL) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+	(void)memset(out_result, 0, sizeof(*out_result));
+	if (client == NULL || handle == UINT64_C(0) || maximum_pages == UINT32_C(0) ||
+	    minimum_pages > maximum_pages || used_before > maximum_pages ||
+	    requested_pages == UINT32_C(0) || requested_pages > maximum_pages - used_before) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+
+	minimm_protocol_put_u64(request, handle);
+	minimm_protocol_put_u32(request + 8U, maximum_pages);
+	minimm_protocol_put_u32(request + 12U, minimum_pages);
+	minimm_protocol_put_u32(request + 16U, used_before);
+	minimm_protocol_put_u32(request + 20U, requested_pages);
+	minimm_protocol_put_u32(request + 24U, global_free_pages);
+	minimm_protocol_put_u32(request + 28U, UINT32_C(0));
+	(void)pthread_mutex_lock(&client->lock);
+	status = minimm_client_exchange_locked(client, MINIMM_PROTOCOL_OP_HUGETLB_RESERVE, request,
+					       MINIMM_PROTOCOL_HUGETLB_RESERVE_REQUEST_SIZE,
+					       &response, &response_length, &server_status);
+	if (status == MINIMM_OK && server_status != MINIMM_OK && response_length == UINT32_C(0)) {
+		status = server_status;
+	} else if (status == MINIMM_OK) {
+		const bool response_sized = response_length ==
+					    MINIMM_PROTOCOL_HUGETLB_RESERVE_RESPONSE_SIZE;
+		const uint32_t requested = response_sized ? minimm_protocol_get_u32(response) :
+							    UINT32_C(0);
+		const uint32_t global_needed =
+			response_sized ? minimm_protocol_get_u32(response + 4U) : UINT32_C(0);
+		const uint32_t allocated = response_sized ? minimm_protocol_get_u32(response + 8U) :
+							    UINT32_C(0);
+		const uint32_t returned_used_before =
+			response_sized ? minimm_protocol_get_u32(response + 12U) : UINT32_C(0);
+		const uint32_t used_after =
+			response_sized ? minimm_protocol_get_u32(response + 16U) : UINT32_C(0);
+		const uint32_t rollback = response_sized ? minimm_protocol_get_u32(response + 20U) :
+							   UINT32_C(0);
+		const uint32_t succeeded =
+			response_sized ? minimm_protocol_get_u32(response + 24U) : UINT32_MAX;
+		const uint32_t accounting_valid =
+			response_sized ? minimm_protocol_get_u32(response + 28U) : UINT32_MAX;
+		const uint32_t temporary_used = used_before + requested_pages;
+		const uint32_t global_before =
+			used_before > minimum_pages ? used_before - minimum_pages : UINT32_C(0);
+		const uint32_t global_after = temporary_used > minimum_pages ?
+						      temporary_used - minimum_pages :
+						      UINT32_C(0);
+		const uint32_t expected_global_needed = global_after - global_before;
+
+		if (!response_sized || succeeded > UINT32_C(1) || accounting_valid > UINT32_C(1) ||
+		    (server_status == MINIMM_OK &&
+		     (requested != requested_pages || returned_used_before != used_before ||
+		      global_needed != expected_global_needed || allocated > requested ||
+		      rollback > requested || used_after > maximum_pages ||
+		      (succeeded != UINT32_C(0) &&
+		       (global_needed > global_free_pages || allocated != requested ||
+			rollback != UINT32_C(0) || used_after != used_before + requested ||
+			accounting_valid == UINT32_C(0))) ||
+		      (succeeded == UINT32_C(0) &&
+		       (global_needed <= global_free_pages || allocated != UINT32_C(0) ||
+			(rollback != requested - global_needed && rollback != requested) ||
+			used_after != used_before + requested - rollback ||
+			(accounting_valid != UINT32_C(0)) != (used_after == used_before)))))) {
+			minimm_client_break_locked(client);
+			status = MINIMM_ERROR_IO;
+		} else {
+			status = server_status;
+			if (status == MINIMM_OK) {
+				out_result->requested_pages = requested;
+				out_result->global_needed_pages = global_needed;
+				out_result->allocated_pages = allocated;
+				out_result->used_before = returned_used_before;
+				out_result->used_after = used_after;
+				out_result->rollback_pages = rollback;
+				out_result->reservation_succeeded = succeeded != UINT32_C(0);
+				out_result->accounting_valid = accounting_valid != UINT32_C(0);
+			}
+		}
+	}
+	(void)pthread_mutex_unlock(&client->lock);
+	free(response);
+	return status;
+}
+
+minimm_status_t
+minimm_client_note_percpu_populate(minimm_client_t *client, uint64_t handle, uint32_t unit_count,
+				   uint32_t unit_pages,
+				   minimm_remote_percpu_populate_result_t *out_result)
+{
+	uint8_t request[MINIMM_PROTOCOL_PERCPU_POPULATE_REQUEST_SIZE] = { 0 };
+	uint8_t *response = NULL;
+	uint32_t response_length = UINT32_C(0);
+	minimm_status_t server_status = MINIMM_ERROR_IO;
+	minimm_status_t status = MINIMM_OK;
+
+	if (out_result == NULL) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+	(void)memset(out_result, 0, sizeof(*out_result));
+	if (client == NULL || handle == UINT64_C(0) || unit_count == UINT32_C(0) ||
+	    unit_pages == UINT32_C(0)) {
+		return MINIMM_ERROR_INVALID_ARGUMENT;
+	}
+
+	minimm_protocol_put_u64(request, handle);
+	minimm_protocol_put_u32(request + 8U, unit_count);
+	minimm_protocol_put_u32(request + 12U, unit_pages);
+	(void)pthread_mutex_lock(&client->lock);
+	status = minimm_client_exchange_locked(client, MINIMM_PROTOCOL_OP_PERCPU_POPULATE, request,
+					       MINIMM_PROTOCOL_PERCPU_POPULATE_REQUEST_SIZE,
+					       &response, &response_length, &server_status);
+	if (status == MINIMM_OK && server_status != MINIMM_OK && response_length == UINT32_C(0)) {
+		status = server_status;
+	} else if (status == MINIMM_OK) {
+		const bool response_sized = response_length ==
+					    MINIMM_PROTOCOL_PERCPU_POPULATE_RESPONSE_SIZE;
+		const uint32_t total = response_sized ? minimm_protocol_get_u32(response) :
+							UINT32_C(0);
+		const uint32_t capacity = response_sized ? minimm_protocol_get_u32(response + 4U) :
+							   UINT32_C(0);
+		const uint32_t mark_count =
+			response_sized ? minimm_protocol_get_u32(response + 8U) : UINT32_C(0);
+		const uint32_t first_invalid =
+			response_sized ? minimm_protocol_get_u32(response + 12U) : UINT32_C(0);
+		const uint32_t empty_after =
+			response_sized ? minimm_protocol_get_u32(response + 16U) : UINT32_C(0);
+		const uint32_t expected_empty =
+			response_sized ? minimm_protocol_get_u32(response + 20U) : UINT32_C(0);
+		const uint32_t bounds_valid =
+			response_sized ? minimm_protocol_get_u32(response + 24U) : UINT32_MAX;
+		const uint32_t accounting_valid =
+			response_sized ? minimm_protocol_get_u32(response + 28U) : UINT32_MAX;
+		const uint64_t expected_total = (uint64_t)unit_count * unit_pages;
+
+		if (!response_sized || bounds_valid > UINT32_C(1) ||
+		    accounting_valid > UINT32_C(1) ||
+		    (server_status == MINIMM_OK &&
+		     ((uint64_t)total != expected_total || capacity != unit_pages ||
+		      (mark_count != capacity && mark_count != total) ||
+		      empty_after != mark_count || expected_empty != capacity ||
+		      bounds_valid != (uint32_t)(mark_count <= capacity) ||
+		      (bounds_valid != UINT32_C(0) && first_invalid != UINT32_MAX) ||
+		      (bounds_valid == UINT32_C(0) && first_invalid != capacity) ||
+		      accounting_valid != (uint32_t)(empty_after == expected_empty)))) {
+			minimm_client_break_locked(client);
+			status = MINIMM_ERROR_IO;
+		} else {
+			status = server_status;
+			if (status == MINIMM_OK) {
+				out_result->total_backing_pages = total;
+				out_result->bitmap_capacity = capacity;
+				out_result->mark_count = mark_count;
+				out_result->first_invalid_index = first_invalid;
+				out_result->empty_pages_after = empty_after;
+				out_result->expected_empty_pages = expected_empty;
+				out_result->bounds_valid = bounds_valid != UINT32_C(0);
+				out_result->accounting_valid = accounting_valid != UINT32_C(0);
+			}
+		}
+	}
+	(void)pthread_mutex_unlock(&client->lock);
+	free(response);
+	return status;
+}
+
 minimm_status_t minimm_client_note_resize(minimm_client_t *client, uint64_t handle,
 					  uint64_t new_size, uint64_t *out_actual_size)
 {

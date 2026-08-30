@@ -14,7 +14,11 @@ cmake --build build/security \
            minimm-security-benchmark-uaf-001 \
            minimm-security-benchmark-logic-001 \
            minimm-security-benchmark-mseal-001 \
-           minimm-security-benchmark-mglru-001
+           minimm-security-benchmark-mglru-001 \
+           minimm-security-benchmark-rmap-001 \
+           minimm-security-benchmark-uffd-001 \
+           minimm-security-benchmark-hugetlb-001 \
+           minimm-security-benchmark-percpu-001
 ctest --test-dir build/security -L security --output-on-failure
 ```
 
@@ -25,6 +29,10 @@ ctest --test-dir build/security -L security --output-on-failure
 - [`MM-LOGIC-001`](cases/MM-LOGIC-001/README.md): file-page remap W^X policy bypass
 - [`MM-MSEAL-001`](cases/MM-MSEAL-001/README.md): stale VMA cursor after an mseal merge
 - [`MM-MGLRU-001`](cases/MM-MGLRU-001/README.md): stale generation batch after memcg reparenting
+- [`MM-RMAP-001`](cases/MM-RMAP-001/README.md): PTE batch crosses an rmap table boundary
+- [`MM-UFFD-001`](cases/MM-UFFD-001/README.md): swap-cache ABA during userfaultfd move
+- [`MM-HUGETLB-001`](cases/MM-HUGETLB-001/README.md): incomplete hugetlb reservation rollback
+- [`MM-PERCPU-001`](cases/MM-PERCPU-001/README.md): allocation-wide count overruns a unit-local bitmap
 
 재현기는 외부 호스트나 파일 경로를 받지 않으며 `127.0.0.1`의
 ephemeral port만 사용한다.

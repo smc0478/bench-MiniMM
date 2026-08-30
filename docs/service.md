@@ -54,7 +54,7 @@ minimm-client / client C API
 
 공유 note record마다 mutex가 하나 있어 서로 다른 연결의 `STAT`, `READ`,
 `WRITE`, `EDIT`, `RESIZE`, `FLUSH`, source `COPY`, private preview, private stack
-expansion, page remap, mseal merge를 직렬화한다. registry link/open/unlink와 서버 상태에는
+expansion, page remap, mseal merge와 opt-in security model을 직렬화한다. registry link/open/unlink와 서버 상태에는
 각각 별도 mutex를 사용한다. 공개 client C API 역시 client별 mutex로 호출을
 직렬화한다. 단, `minimm_client_disconnect()`를 다른 client 호출과 동시에 실행하는
 것은 지원하지 않는다.
@@ -126,15 +126,19 @@ cmake --install build/dev --prefix build/install
 | `--enable-page-remap` | 실험용 file-page remap 활성화(loopback 전용) |
 | `--enable-mseal-merge` | 실험용 mseal merge 활성화(loopback 전용) |
 | `--enable-mglru-reparent` | 실험용 MGLRU reparent 활성화(loopback 전용) |
+| `--enable-rmap-unmap` | 실험용 rmap PTE batch 활성화(loopback 전용) |
+| `--enable-uffd-move` | 실험용 userfaultfd move model 활성화(loopback 전용) |
+| `--enable-hugetlb-reserve` | 실험용 hugetlb reservation model 활성화(loopback 전용) |
+| `--enable-percpu-populate` | 실험용 per-CPU population model 활성화(loopback 전용) |
 | `--version` | 서버 앱과 MiniMM library version 출력 후 종료 |
 | `--help` | 사용법 출력 후 종료 |
 
 `--max-note-size`와 `--max-total-note-size`는 4096의 배수여야 하며, total은
 single-note 한도 이상이어야 한다. `max-notes`는 registry entry만이 아니라
 연결 handle이나 unlink 후 열린 handle 때문에 아직 살아 있는 record도 센다.
-private preview, private stack expansion, page remap, mseal merge, MGLRU reparent 중 하나라도
-활성화하면 bind 주소는 정확히 `127.0.0.1` 또는 `::1`이어야 한다. 다섯 기능은 기본적으로
-꺼져 있다.
+private preview, private stack expansion, page remap, mseal merge, MGLRU reparent와
+네 security model 중 하나라도 활성화하면 bind 주소는 정확히 `127.0.0.1` 또는
+`::1`이어야 한다. 이 기능들은 기본적으로 꺼져 있다.
 
 ## 클라이언트 사용법
 
@@ -155,6 +159,10 @@ stack-expand TOKEN OFFSET TEXT
 remap-page TOKEN OFFSET
 mseal-merge TOKEN
 mglru-reparent TOKEN
+rmap-unmap TOKEN PTE_CAPACITY PTE_INDEX FOLIO_PAGES VMA_REMAINING
+uffd-move TOKEN SWAP_ENTRY SOURCE_FOLIO REPLACEMENT_FOLIO
+hugetlb-reserve TOKEN MAX MIN USED REQUEST GLOBAL_FREE
+percpu-populate TOKEN UNIT_COUNT UNIT_PAGES
 resize TOKEN SIZE
 flush TOKEN
 delete TOKEN
@@ -192,6 +200,11 @@ accounting model을 처리하고 `total_pages=... parent_old_pages=... parent_ne
 child_old_debt_pages=... child_new_credit_pages=... exit_clean=... accounting_valid=...`
 형식의 한 줄을 출력한다. host memcg/LRU와 note byte에는 영향을 주지 않는다.
 서버에서 `--enable-mglru-reparent`를 켜야 사용할 수 있다.
+`rmap-unmap`, `uffd-move`, `hugetlb-reserve`, `percpu-populate`는 모두
+`READ|WRITE|SHARE` handle과 명령행에 표시된 bounded 정수 입력을 받아 각 transient
+model의 metadata를 한 줄로 출력한다. 대응하는 `--enable-*` server option을 켜야
+하며 실제 host page table, swap, hugepage 또는 per-CPU allocator를 조작하지 않고
+note byte도 변경하지 않는다.
 
 ```sh
 ./build/dev/minimm-client create 8192 rweszd

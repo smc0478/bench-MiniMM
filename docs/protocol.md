@@ -94,6 +94,10 @@ HELLO 전에 다른 opcode를 보내거나 HELLO를 두 번 보내면
 | `0x010d` | `REMAP_PAGE` | transient shared view의 file page remap 결과 조회 |
 | `0x010e` | `MSEAL_MERGE` | transient mseal merge의 범위 metadata 조회 |
 | `0x010f` | `MGLRU_REPARENT` | transient MGLRU reparent accounting metadata 조회 |
+| `0x0110` | `RMAP_UNMAP` | transient rmap unmap metadata 조회 |
+| `0x0111` | `UFFD_MOVE` | transient userfaultfd move metadata 조회 |
+| `0x0112` | `HUGETLB_RESERVE` | transient hugetlb reservation metadata 조회 |
+| `0x0113` | `PERCPU_POPULATE` | transient per-CPU population metadata 조회 |
 
 ## 권한과 capability
 
@@ -390,6 +394,122 @@ note byte도 변경하지 않는다.
 
 core 처리 중 실패하면 response는 32-byte zero-valued layout을 유지할 수 있고,
 payload 검증·handle·권한 같은 사전 오류는 payload 없이 반환될 수 있다.
+
+### RMAP_UNMAP
+
+Request, 24 bytes:
+
+```text
+0:u64  handle
+8:u32  pte_capacity
+12:u32 pte_index
+16:u32 folio_pages
+20:u32 vma_remaining
+```
+
+Response, 24 bytes:
+
+```text
+0:u32  requested_pages
+4:u32  scanned_pages
+8:u32  safe_pages
+12:u32 first_invalid_index
+16:u32 crossed_pte_boundary  # 0 또는 1
+20:u32 bounds_valid          # 0 또는 1
+```
+
+handle에는 `READ|WRITE|SHARE`가 필요하고 note 크기는 정확히 4096 bytes여야 한다.
+모든 page count는 1~4096이며 `pte_index < pte_capacity`여야 한다. 서버는 입력에
+대한 deterministic batch metadata를 반환하며 실제 page table을 읽지 않는다.
+`enable_rmap_unmap`이 false면 `UNSUPPORTED_OPCODE`다.
+
+### UFFD_MOVE
+
+Request, 24 bytes:
+
+```text
+0:u64  handle
+8:u32  swap_entry
+12:u32 source_folio
+16:u32 replacement_folio
+20:u32 reserved              # 0
+```
+
+Response, 24 bytes:
+
+```text
+0:u32  swap_entry
+4:u32  expected_folio
+8:u32  moved_folio
+12:u32 pte_entry_matches     # 0 또는 1
+16:u32 folio_identity_valid  # 0 또는 1
+20:u32 accounting_valid      # 0 또는 1
+```
+
+세 identifier는 0이 아니며 두 folio identifier는 달라야 한다. 서버는 입력에 대한
+deterministic move metadata를 반환한다. host swap, userfaultfd, thread 또는 page
+table은 사용하지 않는다. handle에는 `READ|WRITE|SHARE`가 필요하고
+`enable_uffd_move`가 false면 지원되지 않는다.
+
+### HUGETLB_RESERVE
+
+Request, 32 bytes:
+
+```text
+0:u64  handle
+8:u32  maximum_pages
+12:u32 minimum_pages
+16:u32 used_before
+20:u32 requested_pages
+24:u32 global_free_pages
+28:u32 reserved              # 0
+```
+
+Response, 32 bytes:
+
+```text
+0:u32  requested_pages
+4:u32  global_needed_pages
+8:u32  allocated_pages
+12:u32 used_before
+16:u32 used_after
+20:u32 rollback_pages
+24:u32 reservation_succeeded # 0 또는 1
+28:u32 accounting_valid      # 0 또는 1
+```
+
+page count는 각각 최대 1,000,000이고 request는 model의 남은 maximum 안이어야
+한다. 서버는 입력에 대한 deterministic reservation metadata를 반환하며 host
+hugepage를 예약하지 않는다. handle에는 `READ|WRITE|SHARE`가 필요하고
+`enable_hugetlb_reserve`가 false면 지원되지 않는다.
+
+### PERCPU_POPULATE
+
+Request, 16 bytes:
+
+```text
+0:u64  handle
+8:u32  unit_count
+12:u32 unit_pages
+```
+
+Response, 32 bytes:
+
+```text
+0:u32  total_backing_pages
+4:u32  bitmap_capacity
+8:u32  mark_count
+12:u32 first_invalid_index
+16:u32 empty_pages_after
+20:u32 expected_empty_pages
+24:u32 bounds_valid          # 0 또는 1
+28:u32 accounting_valid      # 0 또는 1
+```
+
+unit 값은 각각 1~4096이고 total은 최대 1,048,576이다. 서버는 입력에 대한
+deterministic population metadata를 반환하며 실제 bitmap을 할당하거나 수정하지
+않는다. handle에는 `READ|WRITE|SHARE`가 필요하고 `enable_percpu_populate`가 false면
+지원되지 않는다.
 
 ### RESIZE
 

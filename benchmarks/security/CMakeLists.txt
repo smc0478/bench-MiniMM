@@ -61,6 +61,50 @@ set(
     --server "$<TARGET_FILE:minimm_server_cli>"
     --client "$<TARGET_FILE:minimm_client_cli>"
 )
+set(
+    _minimm_rmap_001_reproducer
+    "${CMAKE_CURRENT_SOURCE_DIR}/cases/MM-RMAP-001/reproduce.py"
+)
+set(
+    _minimm_rmap_001_command
+    "${Python3_EXECUTABLE}"
+    "${_minimm_rmap_001_reproducer}"
+    --server "$<TARGET_FILE:minimm_server_cli>"
+    --client "$<TARGET_FILE:minimm_client_cli>"
+)
+set(
+    _minimm_uffd_001_reproducer
+    "${CMAKE_CURRENT_SOURCE_DIR}/cases/MM-UFFD-001/reproduce.py"
+)
+set(
+    _minimm_uffd_001_command
+    "${Python3_EXECUTABLE}"
+    "${_minimm_uffd_001_reproducer}"
+    --server "$<TARGET_FILE:minimm_server_cli>"
+    --client "$<TARGET_FILE:minimm_client_cli>"
+)
+set(
+    _minimm_hugetlb_001_reproducer
+    "${CMAKE_CURRENT_SOURCE_DIR}/cases/MM-HUGETLB-001/reproduce.py"
+)
+set(
+    _minimm_hugetlb_001_command
+    "${Python3_EXECUTABLE}"
+    "${_minimm_hugetlb_001_reproducer}"
+    --server "$<TARGET_FILE:minimm_server_cli>"
+    --client "$<TARGET_FILE:minimm_client_cli>"
+)
+set(
+    _minimm_percpu_001_reproducer
+    "${CMAKE_CURRENT_SOURCE_DIR}/cases/MM-PERCPU-001/reproduce.py"
+)
+set(
+    _minimm_percpu_001_command
+    "${Python3_EXECUTABLE}"
+    "${_minimm_percpu_001_reproducer}"
+    --server "$<TARGET_FILE:minimm_server_cli>"
+    --client "$<TARGET_FILE:minimm_client_cli>"
+)
 
 add_custom_target(
     minimm-security-benchmark-race-001
@@ -99,6 +143,38 @@ add_custom_target(
     COMMAND ${_minimm_mglru_001_command}
     DEPENDS minimm_server_cli minimm_client_cli
     COMMENT "Reproducing MM-MGLRU-001 through the loopback service"
+    VERBATIM
+)
+
+add_custom_target(
+    minimm-security-benchmark-rmap-001
+    COMMAND ${_minimm_rmap_001_command}
+    DEPENDS minimm_server_cli minimm_client_cli
+    COMMENT "Reproducing MM-RMAP-001 through the loopback service"
+    VERBATIM
+)
+
+add_custom_target(
+    minimm-security-benchmark-uffd-001
+    COMMAND ${_minimm_uffd_001_command}
+    DEPENDS minimm_server_cli minimm_client_cli
+    COMMENT "Reproducing MM-UFFD-001 through the loopback service"
+    VERBATIM
+)
+
+add_custom_target(
+    minimm-security-benchmark-hugetlb-001
+    COMMAND ${_minimm_hugetlb_001_command}
+    DEPENDS minimm_server_cli minimm_client_cli
+    COMMENT "Reproducing MM-HUGETLB-001 through the loopback service"
+    VERBATIM
+)
+
+add_custom_target(
+    minimm-security-benchmark-percpu-001
+    COMMAND ${_minimm_percpu_001_command}
+    DEPENDS minimm_server_cli minimm_client_cli
+    COMMENT "Reproducing MM-PERCPU-001 through the loopback service"
     VERBATIM
 )
 
@@ -155,6 +231,50 @@ if(BUILD_TESTING)
         minimm.benchmark.mglru_001.reproduce
         PROPERTIES
             LABELS "benchmark;security;race-condition;mglru"
+            RUN_SERIAL TRUE
+            TIMEOUT 35
+    )
+    add_test(
+        NAME minimm.benchmark.rmap_001.reproduce
+        COMMAND ${_minimm_rmap_001_command}
+    )
+    set_tests_properties(
+        minimm.benchmark.rmap_001.reproduce
+        PROPERTIES
+            LABELS "benchmark;security;out-of-bounds;rmap"
+            RUN_SERIAL TRUE
+            TIMEOUT 35
+    )
+    add_test(
+        NAME minimm.benchmark.uffd_001.reproduce
+        COMMAND ${_minimm_uffd_001_command}
+    )
+    set_tests_properties(
+        minimm.benchmark.uffd_001.reproduce
+        PROPERTIES
+            LABELS "benchmark;security;race-condition;userfaultfd"
+            RUN_SERIAL TRUE
+            TIMEOUT 35
+    )
+    add_test(
+        NAME minimm.benchmark.hugetlb_001.reproduce
+        COMMAND ${_minimm_hugetlb_001_command}
+    )
+    set_tests_properties(
+        minimm.benchmark.hugetlb_001.reproduce
+        PROPERTIES
+            LABELS "benchmark;security;accounting;hugetlb"
+            RUN_SERIAL TRUE
+            TIMEOUT 35
+    )
+    add_test(
+        NAME minimm.benchmark.percpu_001.reproduce
+        COMMAND ${_minimm_percpu_001_command}
+    )
+    set_tests_properties(
+        minimm.benchmark.percpu_001.reproduce
+        PROPERTIES
+            LABELS "benchmark;security;out-of-bounds;percpu"
             RUN_SERIAL TRUE
             TIMEOUT 35
     )

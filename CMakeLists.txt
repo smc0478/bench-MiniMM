@@ -195,17 +195,25 @@ target_compile_definitions(
 
 add_library(minimm_service STATIC
     src/client.c
+    src/hugetlb_reserve.c
+    src/hugetlb_reserve.h
     src/mglru_reparent.c
     src/mglru_reparent.h
     src/mseal_merge.c
     src/mseal_merge.h
     src/page_remap.c
     src/page_remap.h
+    src/percpu_populate.c
+    src/percpu_populate.h
     src/private_preview.c
     src/private_preview.h
+    src/rmap_unmap.c
+    src/rmap_unmap.h
     src/server.c
     src/stack_expand.c
     src/stack_expand.h
+    src/uffd_move.c
+    src/uffd_move.h
     include/minimm/client.h
     include/minimm/server.h
 )

@@ -4,12 +4,16 @@
 
 #include "minimm/server.h"
 
+#include "hugetlb_reserve.h"
 #include "mglru_reparent.h"
 #include "mseal_merge.h"
 #include "page_remap.h"
+#include "percpu_populate.h"
 #include "private_preview.h"
 #include "protocol.h"
+#include "rmap_unmap.h"
 #include "stack_expand.h"
+#include "uffd_move.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -127,8 +131,10 @@ static bool minimm_server_config_is_valid(const minimm_server_config_t *config)
 	}
 	restricted_bind_is_valid = (!config->enable_private_preview &&
 				    !config->enable_stack_expand && !config->enable_page_remap &&
-				    !config->enable_mseal_merge &&
-				    !config->enable_mglru_reparent) ||
+				    !config->enable_mseal_merge && !config->enable_mglru_reparent &&
+				    !config->enable_rmap_unmap && !config->enable_uffd_move &&
+				    !config->enable_hugetlb_reserve &&
+				    !config->enable_percpu_populate) ||
 				   strcmp(config->bind_address, "127.0.0.1") == 0 ||
 				   strcmp(config->bind_address, "::1") == 0;
 
@@ -160,6 +166,10 @@ minimm_server_config_t minimm_server_config_default(void)
 		.enable_page_remap = false,
 		.enable_mseal_merge = false,
 		.enable_mglru_reparent = false,
+		.enable_rmap_unmap = false,
+		.enable_uffd_move = false,
+		.enable_hugetlb_reserve = false,
+		.enable_percpu_populate = false,
 		.memory = { 0 },
 	};
 
@@ -1339,6 +1349,232 @@ static void minimm_server_handle_mglru_reparent(minimm_server_client_t *client,
 	response->status = minimm_protocol_status_from_minimm(status);
 }
 
+static void minimm_server_handle_rmap_unmap(minimm_server_client_t *client, const uint8_t *payload,
+					    uint32_t payload_length,
+					    minimm_server_response_t *response)
+{
+	const minimm_protocol_rights_t required = MINIMM_PROTOCOL_RIGHT_READ |
+						  MINIMM_PROTOCOL_RIGHT_WRITE |
+						  MINIMM_PROTOCOL_RIGHT_SHARE;
+	minimm_rmap_unmap_input_t input = { 0 };
+	minimm_rmap_unmap_result_t result = { 0 };
+	minimm_server_handle_t *handle = NULL;
+	minimm_status_t status = MINIMM_OK;
+	uint8_t *output = NULL;
+
+	if (!client->server->config.enable_rmap_unmap) {
+		response->status = MINIMM_PROTOCOL_STATUS_UNSUPPORTED_OPCODE;
+		return;
+	}
+	if (payload_length != MINIMM_PROTOCOL_RMAP_UNMAP_REQUEST_SIZE) {
+		response->status = MINIMM_PROTOCOL_STATUS_MALFORMED_MESSAGE;
+		return;
+	}
+	handle = minimm_server_client_find_handle(client, minimm_protocol_get_u64(payload));
+	if (handle == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_NOT_FOUND;
+		return;
+	}
+	if (!minimm_server_has_rights(handle->rights, required)) {
+		response->status = MINIMM_PROTOCOL_STATUS_PERMISSION_DENIED;
+		return;
+	}
+	input.pte_capacity = minimm_protocol_get_u32(payload + 8U);
+	input.pte_index = minimm_protocol_get_u32(payload + 12U);
+	input.folio_pages = minimm_protocol_get_u32(payload + 16U);
+	input.vma_remaining = minimm_protocol_get_u32(payload + 20U);
+	output =
+		minimm_server_response_allocate(response, MINIMM_PROTOCOL_RMAP_UNMAP_RESPONSE_SIZE);
+	if (output == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_OUT_OF_MEMORY;
+		return;
+	}
+
+	(void)pthread_mutex_lock(&handle->record->op_lock);
+	status = minimm_rmap_unmap_run(client->server->mm, handle->record->note, &input, &result);
+	(void)pthread_mutex_unlock(&handle->record->op_lock);
+	minimm_protocol_put_u32(output, result.requested_pages);
+	minimm_protocol_put_u32(output + 4U, result.scanned_pages);
+	minimm_protocol_put_u32(output + 8U, result.safe_pages);
+	minimm_protocol_put_u32(output + 12U, result.first_invalid_index);
+	minimm_protocol_put_u32(output + 16U,
+				result.crossed_pte_boundary ? UINT32_C(1) : UINT32_C(0));
+	minimm_protocol_put_u32(output + 20U, result.bounds_valid ? UINT32_C(1) : UINT32_C(0));
+	response->status = minimm_protocol_status_from_minimm(status);
+}
+
+static void minimm_server_handle_uffd_move(minimm_server_client_t *client, const uint8_t *payload,
+					   uint32_t payload_length,
+					   minimm_server_response_t *response)
+{
+	const minimm_protocol_rights_t required = MINIMM_PROTOCOL_RIGHT_READ |
+						  MINIMM_PROTOCOL_RIGHT_WRITE |
+						  MINIMM_PROTOCOL_RIGHT_SHARE;
+	minimm_uffd_move_input_t input = { 0 };
+	minimm_uffd_move_result_t result = { 0 };
+	minimm_server_handle_t *handle = NULL;
+	minimm_status_t status = MINIMM_OK;
+	uint8_t *output = NULL;
+
+	if (!client->server->config.enable_uffd_move) {
+		response->status = MINIMM_PROTOCOL_STATUS_UNSUPPORTED_OPCODE;
+		return;
+	}
+	if (payload_length != MINIMM_PROTOCOL_UFFD_MOVE_REQUEST_SIZE) {
+		response->status = MINIMM_PROTOCOL_STATUS_MALFORMED_MESSAGE;
+		return;
+	}
+	if (minimm_protocol_get_u32(payload + 20U) != UINT32_C(0)) {
+		response->status = MINIMM_PROTOCOL_STATUS_INVALID_ARGUMENT;
+		return;
+	}
+	handle = minimm_server_client_find_handle(client, minimm_protocol_get_u64(payload));
+	if (handle == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_NOT_FOUND;
+		return;
+	}
+	if (!minimm_server_has_rights(handle->rights, required)) {
+		response->status = MINIMM_PROTOCOL_STATUS_PERMISSION_DENIED;
+		return;
+	}
+	input.swap_entry = minimm_protocol_get_u32(payload + 8U);
+	input.source_folio = minimm_protocol_get_u32(payload + 12U);
+	input.replacement_folio = minimm_protocol_get_u32(payload + 16U);
+	output = minimm_server_response_allocate(response, MINIMM_PROTOCOL_UFFD_MOVE_RESPONSE_SIZE);
+	if (output == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_OUT_OF_MEMORY;
+		return;
+	}
+
+	(void)pthread_mutex_lock(&handle->record->op_lock);
+	status = minimm_uffd_move_run(client->server->mm, handle->record->note, &input, &result);
+	(void)pthread_mutex_unlock(&handle->record->op_lock);
+	minimm_protocol_put_u32(output, result.swap_entry);
+	minimm_protocol_put_u32(output + 4U, result.expected_folio);
+	minimm_protocol_put_u32(output + 8U, result.moved_folio);
+	minimm_protocol_put_u32(output + 12U, result.pte_entry_matches ? UINT32_C(1) : UINT32_C(0));
+	minimm_protocol_put_u32(output + 16U,
+				result.folio_identity_valid ? UINT32_C(1) : UINT32_C(0));
+	minimm_protocol_put_u32(output + 20U, result.accounting_valid ? UINT32_C(1) : UINT32_C(0));
+	response->status = minimm_protocol_status_from_minimm(status);
+}
+
+static void minimm_server_handle_hugetlb_reserve(minimm_server_client_t *client,
+						 const uint8_t *payload, uint32_t payload_length,
+						 minimm_server_response_t *response)
+{
+	const minimm_protocol_rights_t required = MINIMM_PROTOCOL_RIGHT_READ |
+						  MINIMM_PROTOCOL_RIGHT_WRITE |
+						  MINIMM_PROTOCOL_RIGHT_SHARE;
+	minimm_hugetlb_reserve_input_t input = { 0 };
+	minimm_hugetlb_reserve_result_t result = { 0 };
+	minimm_server_handle_t *handle = NULL;
+	minimm_status_t status = MINIMM_OK;
+	uint8_t *output = NULL;
+
+	if (!client->server->config.enable_hugetlb_reserve) {
+		response->status = MINIMM_PROTOCOL_STATUS_UNSUPPORTED_OPCODE;
+		return;
+	}
+	if (payload_length != MINIMM_PROTOCOL_HUGETLB_RESERVE_REQUEST_SIZE) {
+		response->status = MINIMM_PROTOCOL_STATUS_MALFORMED_MESSAGE;
+		return;
+	}
+	if (minimm_protocol_get_u32(payload + 28U) != UINT32_C(0)) {
+		response->status = MINIMM_PROTOCOL_STATUS_INVALID_ARGUMENT;
+		return;
+	}
+	handle = minimm_server_client_find_handle(client, minimm_protocol_get_u64(payload));
+	if (handle == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_NOT_FOUND;
+		return;
+	}
+	if (!minimm_server_has_rights(handle->rights, required)) {
+		response->status = MINIMM_PROTOCOL_STATUS_PERMISSION_DENIED;
+		return;
+	}
+	input.maximum_pages = minimm_protocol_get_u32(payload + 8U);
+	input.minimum_pages = minimm_protocol_get_u32(payload + 12U);
+	input.used_before = minimm_protocol_get_u32(payload + 16U);
+	input.requested_pages = minimm_protocol_get_u32(payload + 20U);
+	input.global_free_pages = minimm_protocol_get_u32(payload + 24U);
+	output = minimm_server_response_allocate(response,
+						 MINIMM_PROTOCOL_HUGETLB_RESERVE_RESPONSE_SIZE);
+	if (output == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_OUT_OF_MEMORY;
+		return;
+	}
+
+	(void)pthread_mutex_lock(&handle->record->op_lock);
+	status = minimm_hugetlb_reserve_run(client->server->mm, handle->record->note, &input,
+					    &result);
+	(void)pthread_mutex_unlock(&handle->record->op_lock);
+	minimm_protocol_put_u32(output, result.requested_pages);
+	minimm_protocol_put_u32(output + 4U, result.global_needed_pages);
+	minimm_protocol_put_u32(output + 8U, result.allocated_pages);
+	minimm_protocol_put_u32(output + 12U, result.used_before);
+	minimm_protocol_put_u32(output + 16U, result.used_after);
+	minimm_protocol_put_u32(output + 20U, result.rollback_pages);
+	minimm_protocol_put_u32(output + 24U,
+				result.reservation_succeeded ? UINT32_C(1) : UINT32_C(0));
+	minimm_protocol_put_u32(output + 28U, result.accounting_valid ? UINT32_C(1) : UINT32_C(0));
+	response->status = minimm_protocol_status_from_minimm(status);
+}
+
+static void minimm_server_handle_percpu_populate(minimm_server_client_t *client,
+						 const uint8_t *payload, uint32_t payload_length,
+						 minimm_server_response_t *response)
+{
+	const minimm_protocol_rights_t required = MINIMM_PROTOCOL_RIGHT_READ |
+						  MINIMM_PROTOCOL_RIGHT_WRITE |
+						  MINIMM_PROTOCOL_RIGHT_SHARE;
+	minimm_percpu_populate_input_t input = { 0 };
+	minimm_percpu_populate_result_t result = { 0 };
+	minimm_server_handle_t *handle = NULL;
+	minimm_status_t status = MINIMM_OK;
+	uint8_t *output = NULL;
+
+	if (!client->server->config.enable_percpu_populate) {
+		response->status = MINIMM_PROTOCOL_STATUS_UNSUPPORTED_OPCODE;
+		return;
+	}
+	if (payload_length != MINIMM_PROTOCOL_PERCPU_POPULATE_REQUEST_SIZE) {
+		response->status = MINIMM_PROTOCOL_STATUS_MALFORMED_MESSAGE;
+		return;
+	}
+	handle = minimm_server_client_find_handle(client, minimm_protocol_get_u64(payload));
+	if (handle == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_NOT_FOUND;
+		return;
+	}
+	if (!minimm_server_has_rights(handle->rights, required)) {
+		response->status = MINIMM_PROTOCOL_STATUS_PERMISSION_DENIED;
+		return;
+	}
+	input.unit_count = minimm_protocol_get_u32(payload + 8U);
+	input.unit_pages = minimm_protocol_get_u32(payload + 12U);
+	output = minimm_server_response_allocate(response,
+						 MINIMM_PROTOCOL_PERCPU_POPULATE_RESPONSE_SIZE);
+	if (output == NULL) {
+		response->status = MINIMM_PROTOCOL_STATUS_OUT_OF_MEMORY;
+		return;
+	}
+
+	(void)pthread_mutex_lock(&handle->record->op_lock);
+	status = minimm_percpu_populate_run(client->server->mm, handle->record->note, &input,
+					    &result);
+	(void)pthread_mutex_unlock(&handle->record->op_lock);
+	minimm_protocol_put_u32(output, result.total_backing_pages);
+	minimm_protocol_put_u32(output + 4U, result.bitmap_capacity);
+	minimm_protocol_put_u32(output + 8U, result.mark_count);
+	minimm_protocol_put_u32(output + 12U, result.first_invalid_index);
+	minimm_protocol_put_u32(output + 16U, result.empty_pages_after);
+	minimm_protocol_put_u32(output + 20U, result.expected_empty_pages);
+	minimm_protocol_put_u32(output + 24U, result.bounds_valid ? UINT32_C(1) : UINT32_C(0));
+	minimm_protocol_put_u32(output + 28U, result.accounting_valid ? UINT32_C(1) : UINT32_C(0));
+	response->status = minimm_protocol_status_from_minimm(status);
+}
+
 static void minimm_server_handle_resize(minimm_server_client_t *client, const uint8_t *payload,
 					uint32_t payload_length, minimm_server_response_t *response)
 {
@@ -1493,6 +1729,18 @@ static bool minimm_server_dispatch(minimm_server_client_t *client, uint16_t opco
 		break;
 	case MINIMM_PROTOCOL_OP_MGLRU_REPARENT:
 		minimm_server_handle_mglru_reparent(client, payload, payload_length, response);
+		break;
+	case MINIMM_PROTOCOL_OP_RMAP_UNMAP:
+		minimm_server_handle_rmap_unmap(client, payload, payload_length, response);
+		break;
+	case MINIMM_PROTOCOL_OP_UFFD_MOVE:
+		minimm_server_handle_uffd_move(client, payload, payload_length, response);
+		break;
+	case MINIMM_PROTOCOL_OP_HUGETLB_RESERVE:
+		minimm_server_handle_hugetlb_reserve(client, payload, payload_length, response);
+		break;
+	case MINIMM_PROTOCOL_OP_PERCPU_POPULATE:
+		minimm_server_handle_percpu_populate(client, payload, payload_length, response);
 		break;
 	case MINIMM_PROTOCOL_OP_RESIZE:
 		minimm_server_handle_resize(client, payload, payload_length, response);

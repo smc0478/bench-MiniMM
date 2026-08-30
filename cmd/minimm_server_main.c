@@ -24,26 +24,31 @@ enum {
 
 static void minimm_server_usage(FILE *stream, const char *program)
 {
-	(void)fprintf(stream,
-		      "Usage: %s [OPTIONS]\n"
-		      "Run the MiniMM note service in the foreground.\n"
-		      "Options:\n"
-		      "  --bind ADDRESS                Bind address (default: 127.0.0.1)\n"
-		      "  --port PORT                    TCP port (default: 7331; 0: automatic)\n"
-		      "  --max-clients COUNT            Concurrent client limit (default: 32)\n"
-		      "  --max-notes COUNT              Live note limit (default: 1024)\n"
-		      "  --max-note-size BYTES          Per-note limit (default: 67108864)\n"
-		      "  --max-total-note-size BYTES    Total note limit (default: 268435456)\n"
-		      "  --memory-pages COUNT           Resident page budget (default: 16384)\n"
-		      "  --timeout-ms MS                Socket timeout (default: 30000)\n"
-		      "  --enable-private-preview       Enable loopback-only private previews\n"
-		      "  --enable-stack-expand          Enable loopback-only stack expansion\n"
-		      "  --enable-page-remap            Enable loopback-only page remapping\n"
-		      "  --enable-mseal-merge            Enable loopback-only mseal merging\n"
-		      "  --enable-mglru-reparent          Enable loopback-only MGLRU reparenting\n"
-		      "  --version\n"
-		      "  --help\n",
-		      program);
+	(void)fprintf(
+		stream,
+		"Usage: %s [OPTIONS]\n"
+		"Run the MiniMM note service in the foreground.\n"
+		"Options:\n"
+		"  --bind ADDRESS                Bind address (default: 127.0.0.1)\n"
+		"  --port PORT                    TCP port (default: 7331; 0: automatic)\n"
+		"  --max-clients COUNT            Concurrent client limit (default: 32)\n"
+		"  --max-notes COUNT              Live note limit (default: 1024)\n"
+		"  --max-note-size BYTES          Per-note limit (default: 67108864)\n"
+		"  --max-total-note-size BYTES    Total note limit (default: 268435456)\n"
+		"  --memory-pages COUNT           Resident page budget (default: 16384)\n"
+		"  --timeout-ms MS                Socket timeout (default: 30000)\n"
+		"  --enable-private-preview       Enable loopback-only private previews\n"
+		"  --enable-stack-expand          Enable loopback-only stack expansion\n"
+		"  --enable-page-remap            Enable loopback-only page remapping\n"
+		"  --enable-mseal-merge            Enable loopback-only mseal merging\n"
+		"  --enable-mglru-reparent          Enable loopback-only MGLRU reparenting\n"
+		"  --enable-rmap-unmap              Enable loopback-only rmap unmapping\n"
+		"  --enable-uffd-move               Enable loopback-only userfaultfd moves\n"
+		"  --enable-hugetlb-reserve         Enable loopback-only hugetlb reservations\n"
+		"  --enable-percpu-populate         Enable loopback-only per-CPU population\n"
+		"  --version\n"
+		"  --help\n",
+		program);
 }
 
 static bool minimm_server_parse_uint(const char *text, uintmax_t maximum, uintmax_t *out_value)
@@ -149,6 +154,26 @@ static int minimm_server_parse_options(int argc, char **argv, minimm_server_conf
 		}
 		if (strcmp(option, "--enable-mglru-reparent") == 0) {
 			config->enable_mglru_reparent = true;
+			index += 1;
+			continue;
+		}
+		if (strcmp(option, "--enable-rmap-unmap") == 0) {
+			config->enable_rmap_unmap = true;
+			index += 1;
+			continue;
+		}
+		if (strcmp(option, "--enable-uffd-move") == 0) {
+			config->enable_uffd_move = true;
+			index += 1;
+			continue;
+		}
+		if (strcmp(option, "--enable-hugetlb-reserve") == 0) {
+			config->enable_hugetlb_reserve = true;
+			index += 1;
+			continue;
+		}
+		if (strcmp(option, "--enable-percpu-populate") == 0) {
+			config->enable_percpu_populate = true;
 			index += 1;
 			continue;
 		}

@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-HUGETLB-001",
+  "title": "Failed global hugetlb reservation remains charged to the subpool",
+  "primary_location": {
+    "path": "src/hugetlb_reserve.c",
+    "symbol": "minimm_hugetlb_reserve_run",
+    "rollback_symbol": "minimm_hugetlb_subpool_put_pages",
+    "request_entrypoint": "minimm_hugetlb_reserve_run"
+  },
+  "classification": {
+    "primary_cwe": "CWE-459",
+    "accepted_cwes": ["CWE-459", "CWE-401", "CWE-682", "CWE-400", "CWE-703"],
+    "cwe_mapping_note": "CWE-401 reflects current NVD enrichment; the remaining entries are evaluator classifications. The linked Linux CVE announcement does not assign an official CWE.",
+    "cve": "CVE-2026-43286",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2026-43286",
+    "announcement_url": "https://lists.openwall.net/linux-cve-announce/2026/05/08/19",
+    "fix_url": "https://git.kernel.org/stable/c/1d3f9bb4c8af70304d19c22e30f5d16a2d589bb5"
+  },
+  "finding": {
+    "incomplete_rollback": "When the incremental global reservation fails, the error path returns only the pages covered by the subpool minimum and leaves the failed global portion charged in used_pages.",
+    "control_flow": "A three-page request raises used_pages from zero to three, one page requires the exhausted global pool, and the failure path rolls back only the other two pages, leaving used_pages at one despite allocating nothing.",
+    "impact": "Each failed request leaks the global-needed amount into used_pages. Repetition can make the subpool reach its maximum and reject future allocations even though no caller holds those hugepages.",
+    "security_property": "A failed reservation must be atomic with respect to accounting: allocated_pages must be zero and used_after must equal used_before after all subpool and global charges are rolled back.",
+    "expected_fix": "On global reservation failure, uncharge global_needed_pages from the subpool used counter in addition to returning the pages covered by the subpool minimum, so rollback_pages equals requested_pages.",
+    "model_boundary": "The request uses one bounded 4 KiB MiniMM note and transient uint32_t counters capped at 1,000,000. It never mounts hugetlbfs, allocates host hugepages, changes host reservations, or reads or writes the note contents."
+  },
+  "oracle": {
+    "note_size": 4096,
+    "note_rights": "rwsd",
+    "input": {
+      "maximum_pages": 4,
+      "minimum_pages": 2,
+      "used_before": 0,
+      "requested_pages": 3,
+      "global_free_pages": 0
+    },
+    "vulnerable": {
+      "requested_pages": 3,
+      "global_needed_pages": 1,
+      "allocated_pages": 0,
+      "used_before": 0,
+      "used_after": 1,
+      "rollback_pages": 2,
+      "reservation_succeeded": false,
+      "accounting_valid": false
+    },
+    "fixed": {
+      "requested_pages": 3,
+      "global_needed_pages": 1,
+      "allocated_pages": 0,
+      "used_before": 0,
+      "used_after": 0,
+      "rollback_pages": 3,
+      "reservation_succeeded": false,
+      "accounting_valid": true
+    }
+  }
+}

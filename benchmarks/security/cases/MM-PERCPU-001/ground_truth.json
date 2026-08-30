@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-PERCPU-001",
+  "title": "Per-CPU chunk population uses an allocation-wide count for a unit-local bitmap",
+  "primary_location": {
+    "path": "src/percpu_populate.c",
+    "symbol": "minimm_percpu_mark_populated",
+    "request_entrypoint": "minimm_percpu_populate_run"
+  },
+  "classification": {
+    "primary_cwe": "CWE-787",
+    "accepted_cwes": ["CWE-787", "CWE-131", "CWE-682"],
+    "cwe_mapping_note": "These are evaluator classifications; the linked Linux CVE announcement does not assign an official CWE.",
+    "cve": "CVE-2026-80718",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2026-80718",
+    "announcement_url": "https://lists.openwall.net/linux-cve-announce/2026/08/28/107",
+    "fix_url": "https://git.kernel.org/stable/c/89b1b79c308818a715e75f28744b70d8940a07c9"
+  },
+  "finding": {
+    "size_confusion": "The vulnerable population path passes unit_count * unit_pages as the number of bits to mark in a bitmap whose capacity is only unit_pages.",
+    "control_flow": "With two units of four pages, backing allocation accounts eight pages and the vulnerable call attempts to mark eight entries in a four-entry chunk bitmap.",
+    "impact": "The original Linux path can write beyond the populated bitmap and overcount the global empty-populated-page statistic.",
+    "security_property": "A chunk-local population bitmap and its accounting delta must be updated with chunk->nr_pages, never the allocation-wide backing page count.",
+    "expected_fix": "Pass the chunk-local page count to the population helper so both the bitmap range and accounting delta are four in the benchmark scenario.",
+    "model_boundary": "MiniMM returns the attempted range and first invalid index as bounded metadata. It never creates a host per-CPU allocation, writes a real bitmap out of bounds, corrupts adjacent memory, or changes host page accounting."
+  },
+  "oracle": {
+    "note_size": 4096,
+    "note_rights": "rwsd",
+    "input": {
+      "unit_count": 2,
+      "unit_pages": 4
+    },
+    "vulnerable": {
+      "total_backing_pages": 8,
+      "bitmap_capacity": 4,
+      "mark_count": 8,
+      "first_invalid_index": 4,
+      "empty_pages_after": 8,
+      "expected_empty_pages": 4,
+      "bounds_valid": false,
+      "accounting_valid": false
+    },
+    "fixed": {
+      "total_backing_pages": 8,
+      "bitmap_capacity": 4,
+      "mark_count": 4,
+      "first_invalid_index": 4294967295,
+      "empty_pages_after": 4,
+      "expected_empty_pages": 4,
+      "bounds_valid": true,
+      "accounting_valid": true
+    }
+  }
+}

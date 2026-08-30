@@ -46,6 +46,10 @@ static void minimm_client_usage(FILE *stream, const char *program)
 		      "  remap-page TOKEN OFFSET\n"
 		      "  mseal-merge TOKEN\n"
 		      "  mglru-reparent TOKEN\n"
+		      "  rmap-unmap TOKEN PTE_CAPACITY PTE_INDEX FOLIO_PAGES VMA_REMAINING\n"
+		      "  uffd-move TOKEN SWAP_ENTRY SOURCE_FOLIO REPLACEMENT_FOLIO\n"
+		      "  hugetlb-reserve TOKEN MAX MIN USED REQUEST GLOBAL_FREE\n"
+		      "  percpu-populate TOKEN UNIT_COUNT UNIT_PAGES\n"
 		      "  resize TOKEN SIZE\n"
 		      "  flush TOKEN\n"
 		      "  delete TOKEN\n"
@@ -76,6 +80,17 @@ static bool minimm_client_parse_uint(const char *text, uintmax_t maximum, uintma
 		return false;
 	}
 	*out_value = value;
+	return true;
+}
+
+static bool minimm_client_parse_u32(const char *text, uint32_t *out_value)
+{
+	uintmax_t value = 0U;
+
+	if (out_value == NULL || !minimm_client_parse_uint(text, UINT32_MAX, &value)) {
+		return false;
+	}
+	*out_value = (uint32_t)value;
 	return true;
 }
 
@@ -819,6 +834,217 @@ static int minimm_client_command_mglru_reparent(const minimm_client_cli_options_
 	return result;
 }
 
+static int minimm_client_command_rmap_unmap(const minimm_client_cli_options_t *options,
+					    int argument_count, char **arguments)
+{
+	const minimm_remote_rights_t rights = MINIMM_REMOTE_RIGHT_READ | MINIMM_REMOTE_RIGHT_WRITE |
+					      MINIMM_REMOTE_RIGHT_SHARE;
+	minimm_client_t *client = NULL;
+	minimm_remote_note_t note = { 0 };
+	minimm_remote_rmap_unmap_result_t unmap = { 0 };
+	minimm_capability_t capability = { { 0 } };
+	uint32_t pte_capacity = UINT32_C(0);
+	uint32_t pte_index = UINT32_C(0);
+	uint32_t folio_pages = UINT32_C(0);
+	uint32_t vma_remaining = UINT32_C(0);
+	minimm_status_t status = MINIMM_OK;
+	int result = MINIMM_CLIENT_EXIT_SUCCESS;
+
+	if (argument_count != 5) {
+		return minimm_client_usage_error(
+			"rmap-unmap requires TOKEN PTE_CAPACITY PTE_INDEX FOLIO_PAGES VMA_REMAINING");
+	}
+	if (!minimm_client_parse_u32(arguments[1], &pte_capacity) ||
+	    !minimm_client_parse_u32(arguments[2], &pte_index) ||
+	    !minimm_client_parse_u32(arguments[3], &folio_pages) ||
+	    !minimm_client_parse_u32(arguments[4], &vma_remaining)) {
+		return minimm_client_usage_error("invalid rmap-unmap numeric argument");
+	}
+	result = minimm_client_open_token(options, arguments[0], rights, &client, &note,
+					  &capability);
+	if (result != MINIMM_CLIENT_EXIT_SUCCESS) {
+		return result;
+	}
+	status = minimm_client_note_rmap_unmap(client, note.handle, pte_capacity, pte_index,
+					       folio_pages, vma_remaining, &unmap);
+	if (status != MINIMM_OK) {
+		result = minimm_client_operation_error("rmap-unmap", status);
+	} else if (printf("requested_pages=%" PRIu32 " scanned_pages=%" PRIu32
+			  " safe_pages=%" PRIu32 " first_invalid_index=%" PRIu32
+			  " crossed_pte_boundary=%s bounds_valid=%s\n",
+			  unmap.requested_pages, unmap.scanned_pages, unmap.safe_pages,
+			  unmap.first_invalid_index, unmap.crossed_pte_boundary ? "true" : "false",
+			  unmap.bounds_valid ? "true" : "false") < 0) {
+		(void)fprintf(stderr, "minimm-client: write output failed\n");
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	if (minimm_client_close_note(client, &note) != MINIMM_CLIENT_EXIT_SUCCESS &&
+	    result == MINIMM_CLIENT_EXIT_SUCCESS) {
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	minimm_client_disconnect(client);
+	return result;
+}
+
+static int minimm_client_command_uffd_move(const minimm_client_cli_options_t *options,
+					   int argument_count, char **arguments)
+{
+	const minimm_remote_rights_t rights = MINIMM_REMOTE_RIGHT_READ | MINIMM_REMOTE_RIGHT_WRITE |
+					      MINIMM_REMOTE_RIGHT_SHARE;
+	minimm_client_t *client = NULL;
+	minimm_remote_note_t note = { 0 };
+	minimm_remote_uffd_move_result_t move = { 0 };
+	minimm_capability_t capability = { { 0 } };
+	uint32_t swap_entry = UINT32_C(0);
+	uint32_t source_folio = UINT32_C(0);
+	uint32_t replacement_folio = UINT32_C(0);
+	minimm_status_t status = MINIMM_OK;
+	int result = MINIMM_CLIENT_EXIT_SUCCESS;
+
+	if (argument_count != 4) {
+		return minimm_client_usage_error(
+			"uffd-move requires TOKEN SWAP_ENTRY SOURCE_FOLIO REPLACEMENT_FOLIO");
+	}
+	if (!minimm_client_parse_u32(arguments[1], &swap_entry) ||
+	    !minimm_client_parse_u32(arguments[2], &source_folio) ||
+	    !minimm_client_parse_u32(arguments[3], &replacement_folio)) {
+		return minimm_client_usage_error("invalid uffd-move numeric argument");
+	}
+	result = minimm_client_open_token(options, arguments[0], rights, &client, &note,
+					  &capability);
+	if (result != MINIMM_CLIENT_EXIT_SUCCESS) {
+		return result;
+	}
+	status = minimm_client_note_uffd_move(client, note.handle, swap_entry, source_folio,
+					      replacement_folio, &move);
+	if (status != MINIMM_OK) {
+		result = minimm_client_operation_error("uffd-move", status);
+	} else if (printf("swap_entry=%" PRIu32 " expected_folio=%" PRIu32 " moved_folio=%" PRIu32
+			  " pte_entry_matches=%s"
+			  " folio_identity_valid=%s accounting_valid=%s\n",
+			  move.swap_entry, move.expected_folio, move.moved_folio,
+			  move.pte_entry_matches ? "true" : "false",
+			  move.folio_identity_valid ? "true" : "false",
+			  move.accounting_valid ? "true" : "false") < 0) {
+		(void)fprintf(stderr, "minimm-client: write output failed\n");
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	if (minimm_client_close_note(client, &note) != MINIMM_CLIENT_EXIT_SUCCESS &&
+	    result == MINIMM_CLIENT_EXIT_SUCCESS) {
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	minimm_client_disconnect(client);
+	return result;
+}
+
+static int minimm_client_command_hugetlb_reserve(const minimm_client_cli_options_t *options,
+						 int argument_count, char **arguments)
+{
+	const minimm_remote_rights_t rights = MINIMM_REMOTE_RIGHT_READ | MINIMM_REMOTE_RIGHT_WRITE |
+					      MINIMM_REMOTE_RIGHT_SHARE;
+	minimm_client_t *client = NULL;
+	minimm_remote_note_t note = { 0 };
+	minimm_remote_hugetlb_reserve_result_t reserve = { 0 };
+	minimm_capability_t capability = { { 0 } };
+	uint32_t maximum_pages = UINT32_C(0);
+	uint32_t minimum_pages = UINT32_C(0);
+	uint32_t used_before = UINT32_C(0);
+	uint32_t requested_pages = UINT32_C(0);
+	uint32_t global_free_pages = UINT32_C(0);
+	minimm_status_t status = MINIMM_OK;
+	int result = MINIMM_CLIENT_EXIT_SUCCESS;
+
+	if (argument_count != 6) {
+		return minimm_client_usage_error(
+			"hugetlb-reserve requires TOKEN MAX MIN USED REQUEST GLOBAL_FREE");
+	}
+	if (!minimm_client_parse_u32(arguments[1], &maximum_pages) ||
+	    !minimm_client_parse_u32(arguments[2], &minimum_pages) ||
+	    !minimm_client_parse_u32(arguments[3], &used_before) ||
+	    !minimm_client_parse_u32(arguments[4], &requested_pages) ||
+	    !minimm_client_parse_u32(arguments[5], &global_free_pages)) {
+		return minimm_client_usage_error("invalid hugetlb-reserve numeric argument");
+	}
+	result = minimm_client_open_token(options, arguments[0], rights, &client, &note,
+					  &capability);
+	if (result != MINIMM_CLIENT_EXIT_SUCCESS) {
+		return result;
+	}
+	status = minimm_client_note_hugetlb_reserve(client, note.handle, maximum_pages,
+						    minimum_pages, used_before, requested_pages,
+						    global_free_pages, &reserve);
+	if (status != MINIMM_OK) {
+		result = minimm_client_operation_error("hugetlb-reserve", status);
+	} else if (printf("requested_pages=%" PRIu32 " global_needed_pages=%" PRIu32
+			  " allocated_pages=%" PRIu32 " used_before=%" PRIu32 " used_after=%" PRIu32
+			  " rollback_pages=%" PRIu32
+			  " reservation_succeeded=%s accounting_valid=%s\n",
+			  reserve.requested_pages, reserve.global_needed_pages,
+			  reserve.allocated_pages, reserve.used_before, reserve.used_after,
+			  reserve.rollback_pages, reserve.reservation_succeeded ? "true" : "false",
+			  reserve.accounting_valid ? "true" : "false") < 0) {
+		(void)fprintf(stderr, "minimm-client: write output failed\n");
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	if (minimm_client_close_note(client, &note) != MINIMM_CLIENT_EXIT_SUCCESS &&
+	    result == MINIMM_CLIENT_EXIT_SUCCESS) {
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	minimm_client_disconnect(client);
+	return result;
+}
+
+static int minimm_client_command_percpu_populate(const minimm_client_cli_options_t *options,
+						 int argument_count, char **arguments)
+{
+	const minimm_remote_rights_t rights = MINIMM_REMOTE_RIGHT_READ | MINIMM_REMOTE_RIGHT_WRITE |
+					      MINIMM_REMOTE_RIGHT_SHARE;
+	minimm_client_t *client = NULL;
+	minimm_remote_note_t note = { 0 };
+	minimm_remote_percpu_populate_result_t populate = { 0 };
+	minimm_capability_t capability = { { 0 } };
+	uint32_t unit_count = UINT32_C(0);
+	uint32_t unit_pages = UINT32_C(0);
+	minimm_status_t status = MINIMM_OK;
+	int result = MINIMM_CLIENT_EXIT_SUCCESS;
+
+	if (argument_count != 3) {
+		return minimm_client_usage_error(
+			"percpu-populate requires TOKEN UNIT_COUNT UNIT_PAGES");
+	}
+	if (!minimm_client_parse_u32(arguments[1], &unit_count) ||
+	    !minimm_client_parse_u32(arguments[2], &unit_pages)) {
+		return minimm_client_usage_error("invalid percpu-populate numeric argument");
+	}
+	result = minimm_client_open_token(options, arguments[0], rights, &client, &note,
+					  &capability);
+	if (result != MINIMM_CLIENT_EXIT_SUCCESS) {
+		return result;
+	}
+	status = minimm_client_note_percpu_populate(client, note.handle, unit_count, unit_pages,
+						    &populate);
+	if (status != MINIMM_OK) {
+		result = minimm_client_operation_error("percpu-populate", status);
+	} else if (printf("total_backing_pages=%" PRIu32 " bitmap_capacity=%" PRIu32
+			  " mark_count=%" PRIu32 " first_invalid_index=%" PRIu32
+			  " empty_pages_after=%" PRIu32 " expected_empty_pages=%" PRIu32
+			  " bounds_valid=%s accounting_valid=%s\n",
+			  populate.total_backing_pages, populate.bitmap_capacity,
+			  populate.mark_count, populate.first_invalid_index,
+			  populate.empty_pages_after, populate.expected_empty_pages,
+			  populate.bounds_valid ? "true" : "false",
+			  populate.accounting_valid ? "true" : "false") < 0) {
+		(void)fprintf(stderr, "minimm-client: write output failed\n");
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	if (minimm_client_close_note(client, &note) != MINIMM_CLIENT_EXIT_SUCCESS &&
+	    result == MINIMM_CLIENT_EXIT_SUCCESS) {
+		result = MINIMM_CLIENT_EXIT_OPERATION;
+	}
+	minimm_client_disconnect(client);
+	return result;
+}
+
 static int minimm_client_command_resize(const minimm_client_cli_options_t *options,
 					int argument_count, char **arguments)
 {
@@ -958,6 +1184,18 @@ static int minimm_client_dispatch(const minimm_client_cli_options_t *options, co
 	}
 	if (strcmp(command, "mglru-reparent") == 0) {
 		return minimm_client_command_mglru_reparent(options, argument_count, arguments);
+	}
+	if (strcmp(command, "rmap-unmap") == 0) {
+		return minimm_client_command_rmap_unmap(options, argument_count, arguments);
+	}
+	if (strcmp(command, "uffd-move") == 0) {
+		return minimm_client_command_uffd_move(options, argument_count, arguments);
+	}
+	if (strcmp(command, "hugetlb-reserve") == 0) {
+		return minimm_client_command_hugetlb_reserve(options, argument_count, arguments);
+	}
+	if (strcmp(command, "percpu-populate") == 0) {
+		return minimm_client_command_percpu_populate(options, argument_count, arguments);
 	}
 	if (strcmp(command, "resize") == 0) {
 		return minimm_client_command_resize(options, argument_count, arguments);

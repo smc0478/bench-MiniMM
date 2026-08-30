@@ -28,6 +28,10 @@ typedef struct minimm_server_config {
 	bool enable_page_remap;
 	bool enable_mseal_merge;
 	bool enable_mglru_reparent;
+	bool enable_rmap_unmap;
+	bool enable_uffd_move;
+	bool enable_hugetlb_reserve;
+	bool enable_percpu_populate;
 	minimm_config_t memory;
 } minimm_server_config_t;
 

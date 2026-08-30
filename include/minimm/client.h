@@ -45,6 +45,46 @@ typedef struct minimm_remote_mglru_reparent_result {
 	bool accounting_valid;
 } minimm_remote_mglru_reparent_result_t;
 
+typedef struct minimm_remote_rmap_unmap_result {
+	uint32_t requested_pages;
+	uint32_t scanned_pages;
+	uint32_t safe_pages;
+	uint32_t first_invalid_index;
+	bool crossed_pte_boundary;
+	bool bounds_valid;
+} minimm_remote_rmap_unmap_result_t;
+
+typedef struct minimm_remote_uffd_move_result {
+	uint32_t swap_entry;
+	uint32_t expected_folio;
+	uint32_t moved_folio;
+	bool pte_entry_matches;
+	bool folio_identity_valid;
+	bool accounting_valid;
+} minimm_remote_uffd_move_result_t;
+
+typedef struct minimm_remote_hugetlb_reserve_result {
+	uint32_t requested_pages;
+	uint32_t global_needed_pages;
+	uint32_t allocated_pages;
+	uint32_t used_before;
+	uint32_t used_after;
+	uint32_t rollback_pages;
+	bool reservation_succeeded;
+	bool accounting_valid;
+} minimm_remote_hugetlb_reserve_result_t;
+
+typedef struct minimm_remote_percpu_populate_result {
+	uint32_t total_backing_pages;
+	uint32_t bitmap_capacity;
+	uint32_t mark_count;
+	uint32_t first_invalid_index;
+	uint32_t empty_pages_after;
+	uint32_t expected_empty_pages;
+	bool bounds_valid;
+	bool accounting_valid;
+} minimm_remote_percpu_populate_result_t;
+
 /*
  * Connect and complete the mandatory protocol handshake. timeout_ms == 0 uses
  * the client default. The deadline covers address attempts and socket I/O but
@@ -109,6 +149,27 @@ minimm_status_t minimm_client_note_mseal_merge(minimm_client_t *client, uint64_t
 minimm_status_t
 minimm_client_note_mglru_reparent(minimm_client_t *client, uint64_t handle,
 				  minimm_remote_mglru_reparent_result_t *out_result);
+/* Run the transient rmap unmap batch model and report traversal metadata. */
+minimm_status_t minimm_client_note_rmap_unmap(minimm_client_t *client, uint64_t handle,
+					      uint32_t pte_capacity, uint32_t pte_index,
+					      uint32_t folio_pages, uint32_t vma_remaining,
+					      minimm_remote_rmap_unmap_result_t *out_result);
+/* Run the transient userfaultfd move model and report folio metadata. */
+minimm_status_t minimm_client_note_uffd_move(minimm_client_t *client, uint64_t handle,
+					     uint32_t swap_entry, uint32_t source_folio,
+					     uint32_t replacement_folio,
+					     minimm_remote_uffd_move_result_t *out_result);
+/* Run the transient hugetlb reservation model and report accounting metadata. */
+minimm_status_t
+minimm_client_note_hugetlb_reserve(minimm_client_t *client, uint64_t handle, uint32_t maximum_pages,
+				   uint32_t minimum_pages, uint32_t used_before,
+				   uint32_t requested_pages, uint32_t global_free_pages,
+				   minimm_remote_hugetlb_reserve_result_t *out_result);
+/* Run the transient per-CPU population model from explicit unit geometry. */
+minimm_status_t
+minimm_client_note_percpu_populate(minimm_client_t *client, uint64_t handle, uint32_t unit_count,
+				   uint32_t unit_pages,
+				   minimm_remote_percpu_populate_result_t *out_result);
 /* A failed server resize reports the unchanged size when its progress payload is present. */
 minimm_status_t minimm_client_note_resize(minimm_client_t *client, uint64_t handle,
 					  uint64_t new_size, uint64_t *out_actual_size);

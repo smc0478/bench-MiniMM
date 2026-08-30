@@ -421,6 +421,10 @@ src/protocol.c           endian-safe framing and exact socket I/O
 src/page_remap.c         transient file-page remap service model
 src/mseal_merge.c        transient mseal range-merge service model
 src/mglru_reparent.c     transient MGLRU generation-accounting service model
+src/rmap_unmap.c         transient rmap unmap service model
+src/uffd_move.c          transient userfaultfd move service model
+src/hugetlb_reserve.c    transient hugetlb reservation service model
+src/percpu_populate.c    transient per-CPU population service model
 src/server.c             TCP lifecycle, registry, session dispatch
 src/client.c             handshake, framing, chunked remote note calls
 cmd/                     one-shot server/client command-line tools
@@ -433,8 +437,9 @@ tests/                   invariant and integration tests
 - Linux syscall 번호/ABI, `errno`, signal(`SIGSEGV`/`SIGBUS`), process
   scheduling, CPU MMU, hardware page table/TLB를 제공하지 않는다.
 - lower canonical user range만 사용하며 page 크기는 4KiB로 고정이다.
-- THP, hugetlb, NUMA 정책·migration, memcg, overcommit/accounting, Linux OOM,
-  `userfaultfd`를 구현하지 않는다.
+- THP, 실제 hugetlb, NUMA 정책·migration, memcg, overcommit/accounting, Linux OOM,
+  실제 `userfaultfd`를 구현하지 않는다. 같은 이름의 opt-in service model은
+  host 기능이 아닌 bounded metadata 전이만 계산한다.
 - reverse mapping은 frame mapcount만 추적하며 Linux rmap처럼 모든 alias를
   역순회하지 않는다.
 - reclaim/writeback은 cold 우선 exact-LRU와 동기식 file I/O의 결정적 실험이다.

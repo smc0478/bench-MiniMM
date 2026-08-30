@@ -42,7 +42,11 @@ typedef enum minimm_protocol_opcode {
 	MINIMM_PROTOCOL_OP_STACK_EXPAND = 0x010c,
 	MINIMM_PROTOCOL_OP_REMAP_PAGE = 0x010d,
 	MINIMM_PROTOCOL_OP_MSEAL_MERGE = 0x010e,
-	MINIMM_PROTOCOL_OP_MGLRU_REPARENT = 0x010f
+	MINIMM_PROTOCOL_OP_MGLRU_REPARENT = 0x010f,
+	MINIMM_PROTOCOL_OP_RMAP_UNMAP = 0x0110,
+	MINIMM_PROTOCOL_OP_UFFD_MOVE = 0x0111,
+	MINIMM_PROTOCOL_OP_HUGETLB_RESERVE = 0x0112,
+	MINIMM_PROTOCOL_OP_PERCPU_POPULATE = 0x0113
 } minimm_protocol_opcode_t;
 
 /* These values are stable wire values, not minimm_status_t values. */
@@ -133,6 +137,29 @@ enum {
  *   8:u32 parent_new_pages, 12:u32 child_old_debt_pages,
  *   16:u32 child_new_credit_pages, 20:u32 exit_clean,
  *   24:u32 accounting_valid, 28:u32 reserved.
+ * RMAP_UNMAP request (24): 0:u64 handle, 8:u32 pte_capacity,
+ *   12:u32 pte_index, 16:u32 folio_pages, 20:u32 vma_remaining.
+ * RMAP_UNMAP response (24): 0:u32 requested_pages, 4:u32 scanned_pages,
+ *   8:u32 safe_pages, 12:u32 first_invalid_index,
+ *   16:u32 crossed_pte_boundary, 20:u32 bounds_valid.
+ * UFFD_MOVE request (24): 0:u64 handle, 8:u32 swap_entry,
+ *   12:u32 source_folio, 16:u32 replacement_folio, 20:u32 reserved.
+ * UFFD_MOVE response (24): 0:u32 swap_entry, 4:u32 expected_folio,
+ *   8:u32 moved_folio, 12:u32 pte_entry_matches,
+ *   16:u32 folio_identity_valid, 20:u32 accounting_valid.
+ * HUGETLB_RESERVE request (32): 0:u64 handle, 8:u32 maximum_pages,
+ *   12:u32 minimum_pages, 16:u32 used_before, 20:u32 requested_pages,
+ *   24:u32 global_free_pages, 28:u32 reserved.
+ * HUGETLB_RESERVE response (32): 0:u32 requested_pages,
+ *   4:u32 global_needed_pages, 8:u32 allocated_pages, 12:u32 used_before,
+ *   16:u32 used_after, 20:u32 rollback_pages,
+ *   24:u32 reservation_succeeded, 28:u32 accounting_valid.
+ * PERCPU_POPULATE request (16): 0:u64 handle, 8:u32 unit_count,
+ *   12:u32 unit_pages.
+ * PERCPU_POPULATE response (32): 0:u32 total_backing_pages,
+ *   4:u32 bitmap_capacity, 8:u32 mark_count, 12:u32 first_invalid_index,
+ *   16:u32 empty_pages_after, 20:u32 expected_empty_pages,
+ *   24:u32 bounds_valid, 28:u32 accounting_valid.
  * RESIZE request (16): 0:u64 handle, 8:u64 new_size.
  * RESIZE response (8): 0:u64 actual_size.
  * FLUSH request (8): 0:u64 handle. Response has no payload.
@@ -169,6 +196,14 @@ enum {
 #define MINIMM_PROTOCOL_MSEAL_MERGE_RESPONSE_SIZE UINT32_C(32)
 #define MINIMM_PROTOCOL_MGLRU_REPARENT_REQUEST_SIZE UINT32_C(8)
 #define MINIMM_PROTOCOL_MGLRU_REPARENT_RESPONSE_SIZE UINT32_C(32)
+#define MINIMM_PROTOCOL_RMAP_UNMAP_REQUEST_SIZE UINT32_C(24)
+#define MINIMM_PROTOCOL_RMAP_UNMAP_RESPONSE_SIZE UINT32_C(24)
+#define MINIMM_PROTOCOL_UFFD_MOVE_REQUEST_SIZE UINT32_C(24)
+#define MINIMM_PROTOCOL_UFFD_MOVE_RESPONSE_SIZE UINT32_C(24)
+#define MINIMM_PROTOCOL_HUGETLB_RESERVE_REQUEST_SIZE UINT32_C(32)
+#define MINIMM_PROTOCOL_HUGETLB_RESERVE_RESPONSE_SIZE UINT32_C(32)
+#define MINIMM_PROTOCOL_PERCPU_POPULATE_REQUEST_SIZE UINT32_C(16)
+#define MINIMM_PROTOCOL_PERCPU_POPULATE_RESPONSE_SIZE UINT32_C(32)
 #define MINIMM_PROTOCOL_RESIZE_REQUEST_SIZE UINT32_C(16)
 #define MINIMM_PROTOCOL_RESIZE_RESPONSE_SIZE UINT32_C(8)
 #define MINIMM_PROTOCOL_FLUSH_REQUEST_SIZE UINT32_C(8)

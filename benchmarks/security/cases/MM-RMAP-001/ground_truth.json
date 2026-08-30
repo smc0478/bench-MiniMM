@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-RMAP-001",
+  "title": "Large-folio batched unmap scans beyond the current PTE table",
+  "primary_location": {
+    "path": "src/rmap_unmap.c",
+    "symbol": "minimm_rmap_unmap_batch",
+    "request_entrypoint": "minimm_rmap_unmap_run"
+  },
+  "classification": {
+    "primary_cwe": "CWE-125",
+    "accepted_cwes": ["CWE-125", "CWE-129", "CWE-823"],
+    "cwe_mapping_note": "These are evaluator classifications; the linked Linux CVE announcement does not assign an official CWE.",
+    "cve": "CVE-2025-38447",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2025-38447",
+    "announcement_url": "https://lists.openwall.net/linux-cve-announce/2025/07/25/93",
+    "fix_url": "https://git.kernel.org/stable/c/ddd05742b45b083975a0855ef6ebbf88cf1f532a"
+  },
+  "finding": {
+    "missing_bound": "The batched unmap scan is capped by the folio size and remaining VMA pages but not by the number of entries left in the current PTE table.",
+    "control_flow": "At PTE index 510 in a 512-entry table, a four-page folio with four VMA pages remaining produces a four-entry scan even though only entries 510 and 511 are valid in that table.",
+    "impact": "The original Linux path can read page-table entries beyond the end of the current PTE table during a userspace-triggerable large-folio unmap.",
+    "security_property": "A batched PTE walk must not scan beyond either the VMA boundary or the current PMD/PTE-table boundary.",
+    "expected_fix": "Cap the batch at the earlier of the VMA end and PMD end, permit a partial large-folio batch, and continue walking after that bounded batch.",
+    "model_boundary": "MiniMM reports scan counts and the first invalid index as bounded metadata. It never allocates or dereferences a host PTE table, performs an out-of-bounds read, unmaps a host VMA, or modifies a host folio."
+  },
+  "oracle": {
+    "note_size": 4096,
+    "note_rights": "rwsd",
+    "input": {
+      "pte_capacity": 512,
+      "pte_index": 510,
+      "folio_pages": 4,
+      "vma_remaining": 4
+    },
+    "vulnerable": {
+      "requested_pages": 4,
+      "scanned_pages": 4,
+      "safe_pages": 2,
+      "first_invalid_index": 512,
+      "crossed_pte_boundary": true,
+      "bounds_valid": false
+    },
+    "fixed": {
+      "requested_pages": 4,
+      "scanned_pages": 2,
+      "safe_pages": 2,
+      "first_invalid_index": 4294967295,
+      "crossed_pte_boundary": false,
+      "bounds_valid": true
+    }
+  }
+}

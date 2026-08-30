@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-UFFD-001",
+  "title": "userfaultfd_move accepts a recycled swap entry while retaining the wrong folio",
+  "primary_location": {
+    "path": "src/uffd_move.c",
+    "symbol": "minimm_uffd_move_move_swap_pte",
+    "request_entrypoint": "minimm_uffd_move_run"
+  },
+  "classification": {
+    "primary_cwe": "CWE-362",
+    "accepted_cwes": ["CWE-362", "CWE-367", "CWE-662", "CWE-682"],
+    "cwe_mapping_note": "These are evaluator classifications; the linked Linux CVE announcement does not assign an official CWE.",
+    "cve": "CVE-2025-38242",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2025-38242",
+    "announcement_url": "https://lists.openwall.net/linux-cve-announce/2025/07/09/25",
+    "fix_url": "https://github.com/torvalds/linux/commit/0ea148a799198518d8ebab63ddd0bb6114a103bc"
+  },
+  "finding": {
+    "stale_identity": "The move path retains a folio obtained from a lockless swap-cache lookup and later revalidates only the numeric source PTE swap entry. The entry can be freed and rebound while the retained folio no longer represents it.",
+    "control_flow": "The source PTE is observed as entry 7; source folio 100 is swapped in and frees 7; replacement folio 200 is swapped out under 7 and becomes the lookup candidate; 200 is swapped in and frees 7; source folio 100 is swapped out under 7; the final integer PTE comparison succeeds and candidate 200 is moved.",
+    "impact": "The wrong folio is moved and accounted to the faulting VMA, modeling the bad RSS-counter state and BUG_ON described by the Linux CVE announcement. The announcement does not establish user-data corruption.",
+    "security_property": "A recycled swap-entry value must not authenticate folio identity. The folio moved from a swap PTE must be the folio currently bound to that entry after the candidate is locked.",
+    "expected_fix": "After acquiring the candidate folio lock, look up the swap cache again and require the entry-to-folio identity to match before moving it; also recheck swap-cache presence under the source PTE lock when the initial lookup found no folio.",
+    "model_boundary": "The request uses one bounded 4 KiB MiniMM note and three nonzero uint32 identifiers. It performs deterministic metadata transitions only and never creates host userfaultfd state, enables swap, changes host page tables, runs a thread race, accesses freed memory, or triggers a kernel assertion."
+  },
+  "oracle": {
+    "note_size": 4096,
+    "note_rights": "rwsd",
+    "input": {
+      "swap_entry": 7,
+      "source_folio": 100,
+      "replacement_folio": 200
+    },
+    "vulnerable": {
+      "swap_entry": 7,
+      "expected_folio": 100,
+      "moved_folio": 200,
+      "pte_entry_matches": true,
+      "folio_identity_valid": false,
+      "accounting_valid": false
+    },
+    "fixed": {
+      "swap_entry": 7,
+      "expected_folio": 100,
+      "moved_folio": 100,
+      "pte_entry_matches": true,
+      "folio_identity_valid": true,
+      "accounting_valid": true
+    }
+  }
+}
