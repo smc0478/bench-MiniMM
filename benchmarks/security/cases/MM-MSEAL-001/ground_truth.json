@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-MSEAL-001",
+  "title": "Mseal VMA merge advances the next update with a stale pre-merge boundary",
+  "primary_location": {
+    "path": "src/mseal_merge.c",
+    "symbol": "minimm_mseal_merge_apply_range",
+    "request_entrypoint": "minimm_mseal_merge_apply"
+  },
+  "classification": {
+    "primary_cwe": "CWE-682",
+    "accepted_cwes": ["CWE-682", "CWE-696", "CWE-670", "CWE-754"],
+    "cwe_mapping_note": "These are evaluator classifications; the linked CVE record and Linux announcement do not assign an official CWE.",
+    "cve": "CVE-2026-23416",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2026-23416",
+    "fix_url": "https://github.com/torvalds/linux/commit/2697dd8ae721db4f6a53d4f4cbd438212a80f8dc",
+    "documentation_url": "https://www.kernel.org/doc/html/v6.12/userspace-api/mseal.html"
+  },
+  "finding": {
+    "stale_boundary": "The full-range sealing loop caches the current VMA end before a flag update that can merge and extend that VMA, then uses the stale pre-merge end as the next update start.",
+    "control_flow": "After the first 4 KiB VMA merges with the already sealed adjacent VMA, the iterator reaches the VMA beginning at 8192 while the carried update cursor remains 4096.",
+    "impact": "The stale cursor constructs an update range that begins before the current VMA, violating the VMA modification precondition and corresponding to the kernel availability issue in CVE-2026-23416.",
+    "security_property": "Every mseal iteration must derive its update range from the requested range and the current post-merge VMA boundaries; a cached boundary invalidated by a merge must never be reused.",
+    "expected_fix": "Compute each iteration's start as the maximum of the current VMA start and requested start, and its end as the minimum of the current VMA end and requested end, instead of carrying a pre-merge end into the next iteration.",
+    "model_boundary": "The request operates only on three logical 4 KiB VMA segments inside one bounded MiniMM note. It never calls host mseal(2), mutates host mappings, or executes the invalid update; the model reports the violated range before any assertion or crash. The sealed_pages count is an observation at this safe abort point, not a claim about Linux post-state."
+  },
+  "oracle": {
+    "note_size": 12288,
+    "note_rights": "rwsd",
+    "total_pages": 3,
+    "sealed_pages_at_safe_abort": 2,
+    "current_start": 8192,
+    "update_start_vulnerable": 4096,
+    "range_valid_vulnerable": false,
+    "expected_fixed_update_start": 8192,
+    "expected_fixed_range_valid": true,
+    "expected_fixed_sealed_pages": 3
+  }
+}

@@ -1,0 +1,21 @@
+/build/
+/cmake-build-*/
+/compile_commands.json
+/CMakeUserPresets.json
+
+# Editor and operating-system files
+.cache/
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local debugger and interpreter state
+.gdb_history
+.lldb_history
+__pycache__/
+*.py[cod]
+
+# Runtime artifacts
+*.core
+core

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-UAF-001",
+  "title": "Stack expansion recycles a VMA-tree node while readers still hold it",
+  "primary_location": {
+    "path": "src/stack_expand.c",
+    "symbol": "minimm_stack_expand_replace_root",
+    "request_entrypoint": "minimm_stack_expand_apply",
+    "stale_use_symbol": "minimm_stack_expand_walk_main"
+  },
+  "classification": {
+    "primary_cwe": "CWE-416",
+    "accepted_cwes": ["CWE-416", "CWE-664", "CWE-362"],
+    "cve": "CVE-2023-3269",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2023-3269",
+    "fix_url": "https://github.com/torvalds/linux/commit/9471f1f2f50282b9e8f59198ec6bb738b4ccc009"
+  },
+  "finding": {
+    "improper_locking": "The stack updater replaces the VMA-tree root while holding mmap_lock for reading instead of writing, so it can run concurrently with a walker that relies on the same shared lock.",
+    "missing_lifetime": "The walker does not enter an RCU read-side critical section because it relies on mmap_lock. The updater can therefore retire the tree node, complete a grace period, and recycle its slot before the walker dereferences it.",
+    "impact": "A stack-expand request opened with read-only rights can overwrite the copied note's backing byte through the recycled VMA-tree node.",
+    "security_property": "Transient private stack expansion must not mutate a note that the connection opened without write rights.",
+    "expected_fix": "Drop the shared mmap_lock, acquire it for writing, revalidate the mapping, and keep the write side held across root replacement and retirement.",
+    "model_boundary": "Reclaim ends the pool node's logical lifetime and releases its frame ownership, but keeps bounded host storage available so deterministic slot reuse remains sanitizer-safe."
+  },
+  "oracle": {
+    "target_rights": "rsd",
+    "before_stack_expand": "A",
+    "stack_expand_input": "X",
+    "after_stack_expand_vulnerable": "X"
+  }
+}

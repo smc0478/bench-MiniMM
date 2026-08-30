@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-MGLRU-001",
+  "title": "MGLRU flushes a page-generation batch into a dying child after memcg reparenting",
+  "primary_location": {
+    "path": "src/mglru_reparent.c",
+    "symbol": "minimm_mglru_reset_batch_size",
+    "request_entrypoint": "minimm_mglru_reparent_run"
+  },
+  "classification": {
+    "primary_cwe": "CWE-362",
+    "accepted_cwes": ["CWE-362", "CWE-662", "CWE-667", "CWE-682"],
+    "cwe_mapping_note": "These are evaluator classifications; the linked Linux CVE announcement does not assign an official CWE.",
+    "cve": "CVE-2026-80719",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2026-80719",
+    "fix_url": "https://github.com/torvalds/linux/commit/de4660898b7aa7e03d3b120a6bfa6b26211e4e77",
+    "documentation_url": "https://docs.kernel.org/admin-guide/mm/multigen_lru.html"
+  },
+  "finding": {
+    "stale_target": "The page-table walker batches a generation move without the lruvec lock, then later flushes it through the cached child lruvec even though memcg offlining has reparented that child in the meantime.",
+    "control_flow": "A one-page child starts in generation 0, the walker changes the page to generation 1 and batches [-1,+1], reparenting moves the unadjusted [1,0] counters to the parent, and the delayed flush writes [-1,+1] back into the dying child.",
+    "impact": "The dying child retains nonzero generation counters while the parent reports zero pages in the generation that actually contains the page. This violates the memcg-exit invariant and models the premature-OOM impact described for CVE-2026-80719.",
+    "security_property": "A delayed MGLRU generation batch must be committed to the first live lruvec that owns the reparented pages; no accounting delta may be committed to a dying child after its counters have moved.",
+    "expected_fix": "At flush time, check whether the cached lruvec belongs to a dying memcg and redirect the batch to its first non-dying ancestor before locking and updating generation counters.",
+    "model_boundary": "The request uses one bounded 4 KiB MiniMM note and transient signed counters for two generations. It never creates a host cgroup, enables host MGLRU, walks host page tables, induces memory pressure, triggers OOM, or executes a real data race or assertion."
+  },
+  "oracle": {
+    "note_size": 4096,
+    "note_rights": "rwsd",
+    "total_pages": 1,
+    "vulnerable": {
+      "parent_old_pages": 1,
+      "parent_new_pages": 0,
+      "child_old_debt_pages": 1,
+      "child_new_credit_pages": 1,
+      "exit_clean": false,
+      "accounting_valid": false
+    },
+    "fixed": {
+      "parent_old_pages": 0,
+      "parent_new_pages": 1,
+      "child_old_debt_pages": 0,
+      "child_new_credit_pages": 0,
+      "exit_clean": true,
+      "accounting_valid": true
+    }
+  }
+}

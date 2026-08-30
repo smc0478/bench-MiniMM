@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-RACE-001",
+  "title": "Read-only private preview can overwrite its COW backing",
+  "primary_location": {
+    "path": "src/private_preview.c",
+    "symbol": "minimm_private_preview_force_write",
+    "request_entrypoint": "minimm_private_preview_apply"
+  },
+  "classification": {
+    "primary_cwe": "CWE-362",
+    "accepted_cwes": ["CWE-362", "CWE-367"],
+    "cve": "CVE-2016-5195",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2016-5195",
+    "fix_url": "https://github.com/torvalds/linux/commit/19be0eaffa3ac7d8eb6784ad9bdbc7d67ed8e619"
+  },
+  "finding": {
+    "missing_ordering": "The forced-write retry does not prove that the page selected after the discard is still the private dirty COW page.",
+    "impact": "A preview request opened with read-only rights can overwrite the copied note's backing byte.",
+    "security_property": "Private preview must never mutate a note that the connection opened without write rights."
+  },
+  "oracle": {
+    "target_rights": "rsd",
+    "before_preview": "A",
+    "preview_input": "X",
+    "after_preview_vulnerable": "X"
+  }
+}

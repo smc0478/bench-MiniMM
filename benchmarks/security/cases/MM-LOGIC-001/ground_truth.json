@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "case_id": "MM-LOGIC-001",
+  "title": "File-page remap installs RWX protection without W^X policy authorization",
+  "primary_location": {
+    "path": "src/page_remap.c",
+    "symbol": "minimm_page_remap_file_pages",
+    "request_entrypoint": "minimm_page_remap_apply",
+    "missing_check_symbol": "minimm_page_remap_security_mmap_file"
+  },
+  "classification": {
+    "primary_cwe": "CWE-670",
+    "accepted_cwes": ["CWE-670", "CWE-693", "CWE-862", "CWE-284"],
+    "cve": "CVE-2024-47745",
+    "cve_url": "https://www.cve.org/CVERecord?id=CVE-2024-47745",
+    "fix_url": "https://github.com/torvalds/linux/commit/ea7e2d5e49c05e5db1922387b09ca74aa40f46e2"
+  },
+  "finding": {
+    "missing_policy_check": "The file-page remap path derives effective RWX protection and installs the replacement mapping without calling minimm_page_remap_security_mmap_file().",
+    "control_flow": "The ordinary mapping path invokes the W^X policy hook, but minimm_page_remap_file_pages reaches the mapping installation through a separate unchecked control-flow path.",
+    "impact": "A client can turn an RW file-backed page into an RWX mapping even though the active policy denies mappings that are writable and executable at the same time.",
+    "security_property": "Every file-backed mapping path must authorize its final effective protection with the same W^X policy before installing the mapping.",
+    "expected_fix": "Call minimm_page_remap_security_mmap_file() with the final effective protection before installing the remapped page, propagate policy denial, and leave the original mapping unchanged.",
+    "model_boundary": "The request remaps one page inside a bounded MiniMM note and never accepts or exposes a host path, file descriptor, or address."
+  },
+  "oracle": {
+    "note_size": 16384,
+    "note_rights": "rwsd",
+    "remap_offset": 8192,
+    "requested_protection": "rw",
+    "effective_protection_vulnerable": "rwx",
+    "expected_fixed_result": "permission denied"
+  }
+}
